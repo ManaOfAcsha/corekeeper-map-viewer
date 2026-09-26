@@ -20,6 +20,14 @@ browser, optionally with the **whole world pre-generated** (bosses, chests, merc
 
 > Windows app. The dedicated server can run anywhere — see [Linux / Docker servers](#linux--docker-servers).
 
+## Before you start
+
+- **Only worlds run on a dedicated server are supported.** If you play by hosting from inside the game,
+  there is no server map file and the viewer will not work (untested).
+- The dedicated server is free: Steam Library → **Tools** → *Core Keeper Dedicated Server*.
+- The common case (dedicated server installed through Steam on the same PC) needs only the 3 install steps below.
+  If it lives somewhere else, just pick the folder in ⚙ Settings.
+
 ## Install
 
 1. Download `CoreKeeperMapViewer-vX.Y.Z-windows.zip` from the [Releases](../../releases) page.
@@ -30,11 +38,15 @@ browser, optionally with the **whole world pre-generated** (bosses, chests, merc
 On first start the viewer looks for your server automatically. If something is missing, the
 **⚙ Settings** panel opens and shows what was found:
 
+<details><summary>How it is detected (details)</summary>
+
 | Setting | Auto-detection |
 |---|---|
 | Dedicated server install (`CoreKeeperServer.exe`) | Steam registry (`HKCU\Software\Valve\Steam` → `SteamPath`, `HKLM\SOFTWARE\WOW6432Node\Valve\Steam` → `InstallPath`) → every library in `steamapps\libraryfolders.vdf` → `appmanifest_1963720.acf` (*Core Keeper Dedicated Server*) |
 | Server data folder | `%USERPROFILE%\AppData\LocalLow\Pugstorm\Core Keeper\DedicatedServer` |
 | World | `"world"` in `ServerConfig.json` of that data folder |
+
+</details>
 
 You can override each value in Settings. Settings are stored in
 `%APPDATA%\CoreKeeperMapViewer\config.json`; pins and generated maps in

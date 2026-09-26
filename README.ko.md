@@ -18,6 +18,14 @@
 
 > 앱은 Windows 전용입니다. 서버는 어디서 돌아도 됩니다 — [리눅스/도커 서버](#리눅스--도커-서버) 참고.
 
+## 시작하기 전에
+
+- **전용 서버(Dedicated Server)로 여는 월드만 지원합니다.** 게임 안에서 "호스트"로 방을 열어 노는 경우에는
+  서버 지도 파일이 없어서 동작하지 않습니다(시험하지 않음).
+- 전용 서버는 Steam 라이브러리의 **Tools** 에서 *Core Keeper Dedicated Server* 로 무료 설치할 수 있습니다.
+- 가장 흔한 경우(같은 PC에서 Steam 으로 설치한 전용 서버)는 아래 설치 3단계만 하면 끝입니다.
+  설치 위치가 다르면 ⚙ 설정에서 폴더만 골라 주면 됩니다.
+
 ## 설치
 
 1. [Releases](../../releases) 페이지에서 `CoreKeeperMapViewer-vX.Y.Z-windows.zip` 을 받습니다.
@@ -27,11 +35,15 @@
 
 처음 실행하면 서버를 자동으로 찾습니다. 빠진 것이 있으면 **⚙ 설정** 창이 열리고 찾은 결과를 보여 줍니다.
 
+<details><summary>자동 감지 방법 (자세히)</summary>
+
 | 항목 | 자동 감지 방법 |
 |---|---|
 | 전용 서버 설치 폴더 (`CoreKeeperServer.exe`) | Steam 레지스트리(`HKCU\Software\Valve\Steam` → `SteamPath`, `HKLM\SOFTWARE\WOW6432Node\Valve\Steam` → `InstallPath`) → `steamapps\libraryfolders.vdf` 의 모든 라이브러리 → `appmanifest_1963720.acf` (*Core Keeper Dedicated Server*) |
 | 서버 데이터 폴더 | `%USERPROFILE%\AppData\LocalLow\Pugstorm\Core Keeper\DedicatedServer` |
 | 월드 | 그 폴더의 `ServerConfig.json` 에 있는 `"world"` |
+
+</details>
 
 설정 창에서 각각 직접 바꿀 수 있습니다. 설정은 `%APPDATA%\CoreKeeperMapViewer\config.json`,
 핀과 생성된 지도는 `%APPDATA%\CoreKeeperMapViewer\worlds\<월드>-<id>\` 에 저장됩니다.
