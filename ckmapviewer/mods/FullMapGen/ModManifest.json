@@ -1,0 +1,28 @@
+{
+    "guid": "5b0f3c9e2d7a4c41a1e6f7d8c9b0a1f2",
+    "name": "FullMapGen",
+    "displayName": "FullMapGen (offline world pre-generation + server map bake)",
+    "skipSafetyChecks": true,
+    "disableScripts": false,
+    "accessesExtraAssemblies": true,
+    "disableHarmonyPatching": false,
+    "requiredOn": 0,
+    "files": [
+        {
+            "path": "Scripts/FullMapGenMod.cs"
+        },
+        {
+            "path": "Scripts/FullMapGenGuard.cs"
+        },
+        {
+            "path": "Scripts/FullMapGenSystem.cs"
+        },
+        {
+            "path": "Scripts/FullMapGenNoPausePatch.cs"
+        },
+        {
+            "path": "Scripts/FullMapGenPoi.cs"
+        }
+    ],
+    "dependencies": []
+}

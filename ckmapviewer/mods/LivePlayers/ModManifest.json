@@ -1,0 +1,16 @@
+{
+    "guid": "c4a7e2b95d1f4e3a8b6c0d9e1f2a3b4c",
+    "name": "LivePlayers",
+    "displayName": "LivePlayers (server-only, read-only player positions for the map viewer)",
+    "skipSafetyChecks": true,
+    "disableScripts": false,
+    "accessesExtraAssemblies": true,
+    "disableHarmonyPatching": true,
+    "requiredOn": 0,
+    "files": [
+        {
+            "path": "Scripts/LivePlayersMod.cs"
+        }
+    ],
+    "dependencies": []
+}

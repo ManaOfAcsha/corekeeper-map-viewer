@@ -1,0 +1,62 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --disable-pip-version-check -r requirements-build.txt
+
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build
+        run: python -m PyInstaller --noconfirm --clean CoreKeeperMapViewer.spec
+
+      - name: Smoke test (exe starts and answers)
+        shell: pwsh
+        run: |
+          $env:CKMV_HOME = "$env:RUNNER_TEMP\ckmv-home"
+          $p = Start-Process -PassThru -NoNewWindow dist\CoreKeeperMapViewer\CoreKeeperMapViewer.exe -ArgumentList '--no-browser','--port','8790','--data-dir',"$env:RUNNER_TEMP\no-server"
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+              Start-Sleep 1
+              try { $r = Invoke-RestMethod http://127.0.0.1:8790/api/ping; $ok = $r.app -eq 'CoreKeeperMapViewer' } catch {}
+            }
+            if (-not $ok) { throw "exe did not answer" }
+            Invoke-RestMethod http://127.0.0.1:8790/api/map | Out-Null
+          } finally { Stop-Process -Id $p.Id -Force }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item README.md, README.ko.md dist\CoreKeeperMapViewer\
+          Copy-Item LICENSE dist\CoreKeeperMapViewer\LICENSE.txt
+          Compress-Archive -Force -Path dist\CoreKeeperMapViewer -DestinationPath "dist\CoreKeeperMapViewer-${{ github.ref_name }}-windows.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoreKeeperMapViewer-windows
+          path: dist/CoreKeeperMapViewer-*-windows.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/CoreKeeperMapViewer-*-windows.zip
+          generate_release_notes: true

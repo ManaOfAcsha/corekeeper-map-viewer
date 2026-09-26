@@ -1,0 +1,1485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core Keeper Map Viewer</title>
+<style>
+  :root {
+    --bg: #0d0f14; --panel: #161a22ee; --line: #2a3140; --text: #e6e9ef;
+    --muted: #8b94a7; --accent: #f2b33d; --ok: #4cc38a; --bad: #e5484d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 "Segoe UI", "Malgun Gothic", system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh;
+    cursor: grab; touch-action: none; }
+  canvas.dragging { cursor: grabbing; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 290px; max-height: calc(100vh - 24px);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; overflow: auto; backdrop-filter: blur(6px); }
+  #panel.collapsed > :not(header) { display: none; }
+  header { display: flex; align-items: center; gap: 8px; }
+  header h1 { font-size: 15px; margin: 0; flex: 1; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dot.bad { background: var(--bad); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .stat { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 10px 0; font-size: 13px; }
+  .stat b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .err { color: var(--bad); font-size: 12px; margin: 6px 0; word-break: break-all; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  button { background: #222837; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  #toggle { padding: 2px 7px; }
+  h2 { font-size: 13px; margin: 14px 0 6px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 6px; padding: 4px 2px; border-top: 1px solid var(--line);
+    font-size: 13px; }
+  li .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  li .nm { flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li .co { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  li button { padding: 0 6px; }
+  #coord { position: fixed; right: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-variant-numeric: tabular-nums; font-size: 13px; }
+  #toast { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); background: var(--accent);
+    color: #1a1300; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px;
+    opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  .seg { display: flex; margin: 4px 0 8px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; border-radius: 0; padding: 4px 2px; background: #1b202b; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: #2b2616; color: var(--accent); }
+  .grp { margin: 6px 0 8px; }
+  .gh { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted);
+    padding: 3px 0; cursor: pointer; user-select: none; }
+  .gh .gc { margin-left: auto; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 8px; }
+  .row { display: flex; align-items: center; gap: 5px; font-size: 12.5px; padding: 2px 0; cursor: pointer;
+    user-select: none; min-width: 0; }
+  .row canvas.ic { position: static; width: 14px; height: 14px; flex: none; cursor: inherit; }
+  .row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .ct { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .row.zero { opacity: .45; }
+  input[type=checkbox] { margin: 0; accent-color: var(--accent); width: 13px; height: 13px; flex: none; }
+  #tip { position: fixed; z-index: 5; pointer-events: none; background: #0b0d12f2; border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 9px; font-size: 12px; line-height: 1.45; white-space: nowrap;
+    box-shadow: 0 4px 14px #0008; }
+  #tip b { font-weight: 600; }
+  #tip .raw { color: var(--muted); font-size: 11px; }
+  canvas#live { pointer-events: none; }
+  #plStatus { font-size: 12px; margin: 0 0 4px; }
+  #plStatus.live { color: var(--ok); }
+  #plStatus.stopped, #plStatus.error { color: var(--bad); }
+  #plist li .pd { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1.5px solid #fff; }
+  #plist li .hp { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  #plist li.dead .nm { text-decoration: line-through; opacity: .7; }
+  .hb { padding: 2px 7px; }
+  .setupcta { margin: 8px 0; }
+  .setupcta button { width: 100%; border-color: var(--accent); color: var(--accent); }
+  #setup { position: fixed; inset: 0; z-index: 10; background: #000a; display: flex; align-items: flex-start;
+    justify-content: center; overflow: auto; padding: 24px 12px; }
+  #setup[hidden] { display: none; }
+  .sbox { width: min(640px, 100%); background: #161a22; border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 18px 16px; box-shadow: 0 12px 40px #000a; }
+  .sbox header h1 { font-size: 16px; }
+  .sbox section { border-top: 1px solid var(--line); padding: 6px 0 10px; margin-top: 8px; }
+  .sbox h2 { font-size: 14px; margin: 8px 0 6px; }
+  .fld { margin: 8px 0; }
+  .fld label { font-size: 12.5px; color: var(--muted); }
+  .fld input, .fld select, .inl input { width: 100%; margin-top: 3px; background: #0f1219; color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; }
+  .fld.row2 { display: grid; grid-template-columns: 1fr 130px; gap: 10px; }
+  .inl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .inl input { width: 90px; margin: 0; padding: 4px 6px; }
+  .chk { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 13px; cursor: pointer; }
+  .hint { color: var(--muted); font-size: 12px; margin: 3px 0; word-break: break-word; }
+  .hint.bad, .kv.bad { color: var(--bad); }
+  .hint.ok, .kv.ok { color: var(--ok); }
+  .warn { font-size: 12px; color: #f5c469; background: #2b2616; border: 1px solid #5a4a1c; border-radius: 6px;
+    padding: 6px 8px; margin: 4px 0; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.ok { color: var(--ok); border-color: #2d6b4f; }
+  .badge.bad { color: var(--bad); border-color: #7a2b2e; }
+  .kv { font-size: 13px; margin: 4px 0; }
+  button.pri { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+  .bar { height: 8px; background: #0f1219; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; margin: 6px 0; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  #gLog { max-height: 150px; overflow: auto; background: #0f1219; border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 8px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; margin: 4px 0 0; }
+  footer code { font-size: 11px; word-break: break-all; }
+  @media (max-width: 600px) { #panel { width: calc(100vw - 24px); max-height: 55vh; } }
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+<canvas id="live"></canvas>
+
+<div id="panel">
+  <header>
+    <span class="dot" id="conn" data-i18n-title="conn"></span>
+    <h1 id="title" data-i18n="title"></h1>
+    <button id="bLang" class="hb" title="Language / 언어">EN</button>
+    <button id="bSetup" class="hb" data-i18n-title="settings" hidden>⚙</button>
+    <button id="toggle" data-i18n-title="collapse">–</button>
+  </header>
+  <div class="stat">
+    <span class="muted" data-i18n="stSaved"></span><b id="updated">-</b>
+    <span class="muted" data-i18n="stParts"></span><b id="parts">-</b>
+    <span class="muted" data-i18n="stFull"></span><b id="full">-</b>
+    <span class="muted" data-i18n="stZoom"></span><b id="zoomv">-</b>
+  </div>
+  <div class="err" id="err" hidden></div>
+  <div class="btns">
+    <button id="bCore" data-i18n="bCore"></button>
+    <button id="bFit" data-i18n="bFit"></button>
+    <button id="bGrid" data-i18n="bGrid"></button>
+    <button id="bFlash" class="on" data-i18n="bFlash"></button>
+    <button id="bPng" data-i18n="bPng"></button>
+    <button id="bFull" class="on" data-i18n="bFull"></button>
+    <button id="bDim" class="on" data-i18n="bDim"></button>
+  </div>
+  <div class="muted" data-i18n-html="help"></div>
+  <div class="setupcta" id="setupCta" hidden><button id="bSetup2" data-i18n="openSettings"></button></div>
+  <h2><span data-i18n="hPlayers"></span> <span class="muted" id="plMeta"></span></h2>
+  <div id="plStatus" class="muted" data-i18n="plChecking"></div>
+  <ul id="plist"></ul>
+  <h2><span data-i18n="hShow"></span> <span class="muted" id="poiMeta"></span></h2>
+  <div class="seg" id="poiFilter">
+    <button data-f="all" data-i18n="fAll"></button><button data-f="explored" data-i18n="fExplored"></button><button data-f="unexplored" data-i18n="fUnexplored"></button>
+  </div>
+  <div class="grp">
+    <label class="gh"><input type="checkbox" id="gObj"> <span data-i18n="gObj"></span> <span class="gc" id="gObjC"></span></label>
+    <div class="rows" id="rowsObj"></div>
+  </div>
+  <div class="grp">
+    <label class="gh" data-i18n-title="gBldTitle"><input type="checkbox" id="gBld"> <span data-i18n="gBld"></span> <span class="gc" id="gBldC"></span></label>
+    <div class="rows" id="rowsBld"></div>
+  </div>
+  <div class="grp">
+    <label class="gh" data-i18n-title="gOreTitle"><input type="checkbox" id="gOre"> <span data-i18n="gOre"></span> <span class="gc" id="gOreC"></span></label>
+    <div class="rows" id="rowsOre"></div>
+  </div>
+  <h2><span data-i18n="hPins"></span> <span class="muted" id="mcount"></span></h2>
+  <ul id="mlist"></ul>
+</div>
+
+<div id="setup" hidden>
+  <div class="sbox" role="dialog" aria-modal="true" aria-labelledby="sTitle">
+    <header><h1 id="sTitle" data-i18n="sTitle"></h1><button id="sClose" class="hb">×</button></header>
+    <div id="sNotLocal" class="muted" data-i18n="notLocal" hidden></div>
+    <div id="sBody">
+      <section>
+        <h2 data-i18n="sPaths"></h2>
+        <div class="fld">
+          <label for="sInstall" data-i18n="sInstall"></label> <span class="badge" id="sInstallSt"></span>
+          <input id="sInstall" spellcheck="false" autocomplete="off">
+          <div class="hint" id="sInstallMsg"></div><div class="hint" data-i18n="sInstallHint"></div>
+        </div>
+        <div class="fld">
+          <label for="sData" data-i18n="sData"></label> <span class="badge" id="sDataSt"></span>
+          <input id="sData" spellcheck="false" autocomplete="off">
+          <div class="hint" id="sDataMsg"></div><div class="hint" data-i18n="sDataHint"></div>
+        </div>
+        <div class="fld row2">
+          <div><label for="sWorld" data-i18n="sWorld"></label><select id="sWorld"></select></div>
+          <div><label for="sPort" data-i18n="sPort"></label><input id="sPort" type="number" min="1024" max="65535"></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="sLan"> <span data-i18n="sLan"></span></label>
+        <div class="warn" data-i18n="sLanWarn"></div>
+        <div class="hint" id="sLanUrls"></div>
+        <div class="btns">
+          <button id="sSave" class="pri" data-i18n="sSave"></button>
+          <button id="sRedetect" data-i18n="sRedetect"></button>
+          <button id="sAuto" data-i18n="sAuto"></button>
+        </div>
+        <div class="hint" id="sMsg"></div>
+      </section>
+      <section>
+        <h2 data-i18n="gTitle"></h2>
+        <div class="hint" data-i18n="gDesc"></div>
+        <div class="kv" id="gHave"></div>
+        <div class="btns">
+          <button id="gStart" class="pri" data-i18n="gStart"></button>
+          <button id="gCancel" data-i18n="gCancel" hidden></button>
+          <label class="inl"><span data-i18n="gRadius"></span> <input id="gRadius" type="number" min="0" max="8192" step="128" value="0"></label>
+        </div>
+        <div id="gJob" hidden>
+          <div class="kv" id="gState"></div>
+          <div class="bar"><i id="gBar"></i></div>
+          <pre id="gLog"></pre>
+        </div>
+      </section>
+      <section>
+        <h2 data-i18n="mTitle"></h2>
+        <div class="hint" data-i18n="mDesc"></div>
+        <div class="kv" id="mState"></div>
+        <div class="kv" id="mServer"></div>
+        <div class="kv" id="mFeed"></div>
+        <div class="btns">
+          <button id="mInstall" class="pri" data-i18n="mInstall"></button>
+          <button id="mRemove" data-i18n="mRemove"></button>
+        </div>
+        <div class="hint" id="mMsg"></div>
+      </section>
+      <footer class="hint"><span data-i18n="appData"></span>: <code id="sAppData"></code>
+        <button id="sOpen" data-i18n="open"></button> · <span id="sVer"></span></footer>
+    </div>
+  </div>
+</div>
+
+<div id="coord">x -, y -</div>
+<div id="toast"></div>
+<div id="tip" hidden></div>
+
+<script>
+"use strict";
+
+// ---- i18n: Korean + English. Pick: ?lang= / saved choice / browser language ----
+const I18N = {
+  ko: {
+    title: "Core Keeper 라이브 맵", conn: "서버 연결 상태", collapse: "패널 접기", settings: "설정",
+    stSaved: "서버 저장", stParts: "탐험 구역", stFull: "전체 지도", stZoom: "배율",
+    bCore: "코어로", bFit: "전체 보기", bGrid: "격자", bFlash: "변경 강조", bPng: "PNG 저장",
+    bFull: "전체 지도", bDim: "안 가본 곳 어둡게",
+    help: "드래그 이동 · 휠 확대 · <b>더블클릭</b> 핀 추가<br>지도는 서버가 지도 파일을 저장할 때마다 자동 갱신됩니다.",
+    openSettings: "⚙ 설정 열기 (경로 확인)",
+    hPlayers: "플레이어", plChecking: "플레이어 위치: 확인 중…", hShow: "표시",
+    fAll: "전체", fExplored: "탐험한 곳만", fUnexplored: "안 가본 곳만",
+    gObj: "주요 위치", gBld: "광석 (2×2 덩어리)", gBldTitle: "따로 떨어져 있는 2×2 광석 덩어리",
+    gOre: "광물 (벽 속 광맥)", gOreTitle: "벽 속에 박힌 광맥, 16×16칸 구역 단위", hPins: "핀",
+    pinPrompt: (x, y) => `핀 이름 (x ${x}, y ${y})`, noName: "(이름 없음)", del: "삭제",
+    pinHint: "지도를 더블클릭해 추가", pinSaveFail: "핀 저장 실패: ",
+    mapErr_missing: "서버 지도 파일이 없습니다 — 설정에서 데이터 폴더와 월드를 확인하세요",
+    mapErr_read_failed: "지도 파일 읽기 실패 (다음 주기에 재시도)",
+    partsInfo: (n) => `${n}조각 (조각당 256×256칸)`,
+    fullInfo: (n, d) => `${n}조각 · ${d} 생성`, fullNone: "없음 (⚙ 설정에서 생성)",
+    mapUpdated: (n) => `지도 갱신: ${n}조각 변경`, loadFail: "지도 불러오기 실패: ",
+    agoS: (s) => `${s}초 전`, agoM: (m) => `${m}분 전`, agoH: (h) => `${h}시간 전`,
+    connOk: "실시간 연결됨", connBad: "연결 끊김 - 재연결 중",
+    pl_missing: "플레이어 위치: 모드 미설치", pl_live: (n) => `플레이어 위치: 연결됨 ${n}명`,
+    pl_paused: "플레이어 위치: 연결됨 0명 (접속자 없음, 서버 대기 중)", pl_stopped: "플레이어 위치: 멈춤 (서버 꺼짐)",
+    pl_error: "플레이어 위치: players.json 읽기 실패", pl_viewer: "플레이어 위치: 뷰어 연결 끊김 - 재연결 중",
+    pl_none: "플레이어 위치: -",
+    plGoto: "클릭: 이 플레이어로 이동", dead: "사망", follow: "따라가기",
+    followTitle: "화면이 이 플레이어를 따라 움직임 (드래그하면 해제)",
+    poi_boss: "보스", poi_chest: "상자", poi_statue: "석상", poi_merchant: "상인", poi_portal: "포탈",
+    poi_waypoint: "웨이포인트", poi_place: "장소/던전", poi_altar: "제단", poi_core: "코어", poi_other: "기타",
+    poi_scene: "장소", poi_dungeon: "던전",
+    boulderLabel: (k) => `${k} 광석`, boulderSuffix: " (2×2 덩어리)", otherCat: (c) => `기타 (${c})`,
+    clickToGo: "클릭하면 이동", oreVein: (k) => `${k} 광물 (광맥)`,
+    oreMerged: (c, n) => ` · ${c}칸 (구역 ${n}개 합침)`, oreTiles: (c) => ` · ${c}칸`, near: " 부근",
+    boulderTitle: (k) => `${k} 광석 덩어리`, rawCats: "원본 분류: ", noOre: "광석 데이터 없음",
+    poiMissing: "(데이터 없음)", poiGenerated: (d) => `(${d} 생성)`,
+    poiMissingTitle: "⚙ 설정에서 전체 지도를 생성하면 자동으로 표시됩니다",
+    sumAreas: " 구역", sumCount: "개",
+    // settings
+    sTitle: "설정", sPaths: "서버 경로", sInstall: "전용 서버 설치 폴더 (CoreKeeperServer.exe)",
+    sInstallHint: "Steam에서 자동으로 찾습니다. 비워 두면 자동 감지.",
+    sData: "서버 데이터 폴더 (ServerConfig.json, servermaps, worlds)",
+    sDataHint: "보통 %USERPROFILE%\\AppData\\LocalLow\\Pugstorm\\Core Keeper\\DedicatedServer. 리눅스/도커 서버는 그 폴더를 복사하거나 네트워크 드라이브로 연결해 지정하세요. 비워 두면 자동.",
+    sWorld: "월드", sWorldAuto: (n) => `ServerConfig.json 설정 따르기 (현재 ${n})`,
+    sLan: "같은 네트워크(LAN)의 다른 기기에서도 보기",
+    sLanWarn: "켜면 0.0.0.0 으로 열려서 같은 네트워크의 누구나 지도(플레이어 이름·위치 포함)를 볼 수 있습니다. 로그인 기능이 없으니 Windows 방화벽에서 허용할 기기/네트워크를 제한하세요. 설정 변경·지도 생성·모드 설치는 이 PC에서만 가능합니다.",
+    sPort: "포트", sSave: "저장", sAuto: "모두 자동 감지로", sRedetect: "다시 감지",
+    sSaved: "저장했습니다", sRestarting: "새 주소로 다시 여는 중…",
+    found: "찾음", missing: "없음", src_auto: "자동 감지", src_config: "직접 지정", src_cli: "명령줄 지정",
+    src_steam: "Steam", src_serverconfig: "ServerConfig.json",
+    r_not_found: "찾지 못했습니다 — 직접 입력하세요", r_no_exe: "이 폴더에 CoreKeeperServer.exe 가 없습니다",
+    r_no_map: "이 폴더에 선택한 월드의 servermaps/<월드>.mapparts.gzip 이 없습니다 (서버를 한 번 실행해 저장되면 생깁니다)",
+    lanUrls: "다른 기기에서 열 주소:", bindError: "포트를 열 수 없음: ",
+    gTitle: "전체 지도 (안 가본 곳 포함)",
+    gDesc: "설치된 전용 서버를 임시 폴더에 복사하고, 월드 세이브 사본으로 일회용 서버를 띄워 월드 전체 지형을 미리 생성한 뒤 지도로 저장합니다. 실제 서버와 세이브는 읽기만 합니다. 실제 서버를 켜 둔 채로 해도 됩니다. PC 사양에 따라 10~60분 걸립니다.",
+    gStart: "전체 지도 생성", gCancel: "취소", gRadius: "반경(칸, 0=자동)", gNever: "아직 생성하지 않았습니다",
+    gHave: (n, d) => `있음: ${n}조각 · ${d}`,
+    job_running: "진행 중", job_done: "완료", job_failed: "실패", job_cancelled: "취소됨",
+    ph_check: "확인", ph_copy: "서버 복사 중", ph_prepare: "월드 복사 중", ph_start: "일회용 서버 시작 중",
+    ph_generate: "지형 생성 중", ph_render: "지도 그리는 중", ph_stop: "일회용 서버 종료 중", ph_done: "완료",
+    e_already_running: "이미 생성 중입니다", e_server_install_missing: "전용 서버 설치 폴더를 찾지 못했습니다",
+    e_world_save_missing: "월드 세이브(worlds/<월드>.world.gzip)가 없습니다",
+    e_work_dir_overlaps_real_server: "작업 폴더가 실제 서버 폴더와 겹칩니다 — 거부",
+    mTitle: "플레이어 위치 모드 (LivePlayers)",
+    mDesc: "전용 서버에만 넣는 작은 읽기 전용 모드입니다. 접속 중인 플레이어의 이름·위치·체력을 1초마다 파일로 씁니다. 플레이어는 모드 없이 그대로 접속합니다(requiredOn 0). 설치·제거는 서버를 끈 상태에서만 되고, 적용하려면 서버를 다시 시작해야 합니다.",
+    mInstall: "설치 / 업데이트", mRemove: "제거",
+    mNot: "설치 안 됨", mIs: (v) => `설치됨 (v${v})`, mOld: (v, b) => `설치됨 v${v} — 새 버전 v${b} 있음`,
+    mRunning: (p) => `실제 서버 실행 중 (PID ${p}) — 끈 다음 설치/제거하세요`, mStopped: "실제 서버 꺼짐",
+    mMaybe: "위치를 확인할 수 없는 CoreKeeperServer.exe 가 실행 중 — 끈 다음 시도하세요",
+    mNoInstall: "전용 서버 설치 폴더가 필요합니다",
+    mDone_installed: "설치했습니다. 서버를 다시 시작하세요 (로그에 [LivePlayers] ... loaded).",
+    mDone_updated: "업데이트했습니다. 서버를 다시 시작하세요.", mDone_removed: "제거했습니다. 서버를 다시 시작하면 적용됩니다.",
+    mDone_not_installed: "설치되어 있지 않습니다.",
+    me_server_running: "서버가 실행 중입니다. 서버를 끄고 다시 시도하세요.",
+    me_server_maybe_running: "위치를 확인할 수 없는 서버가 실행 중입니다. 끄고 다시 시도하세요.",
+    me_check_failed: "서버 실행 여부를 확인할 수 없어 중단했습니다.", me_no_install: "전용 서버 설치 폴더가 필요합니다.",
+    feed: "플레이어 위치 파일", appData: "앱 데이터 폴더 (설정·핀·생성된 지도)", open: "열기",
+    notLocal: "설정은 뷰어가 실행 중인 PC에서만 바꿀 수 있습니다.",
+  },
+  en: {
+    title: "Core Keeper Live Map", conn: "Connection status", collapse: "Collapse panel", settings: "Settings",
+    stSaved: "Server saved", stParts: "Explored", stFull: "Full map", stZoom: "Zoom",
+    bCore: "Core", bFit: "Fit all", bGrid: "Grid", bFlash: "Highlight changes", bPng: "Save PNG",
+    bFull: "Full map", bDim: "Dim unexplored",
+    help: "Drag to pan · wheel to zoom · <b>double-click</b> to add a pin<br>The map refreshes whenever the server saves its map file.",
+    openSettings: "⚙ Open settings (check paths)",
+    hPlayers: "Players", plChecking: "Player positions: checking…", hShow: "Overlay",
+    fAll: "All", fExplored: "Explored", fUnexplored: "Unexplored",
+    gObj: "Places", gBld: "Ore boulders (2×2)", gBldTitle: "Free-standing 2×2 ore boulders",
+    gOre: "Ore veins (in walls)", gOreTitle: "Ore veins inside walls, per 16×16-tile area", hPins: "Pins",
+    pinPrompt: (x, y) => `Pin name (x ${x}, y ${y})`, noName: "(no name)", del: "Delete",
+    pinHint: "Double-click the map to add one", pinSaveFail: "Saving pins failed: ",
+    mapErr_missing: "Server map file not found — check the data folder and world in Settings",
+    mapErr_read_failed: "Could not read the map file (retrying)",
+    partsInfo: (n) => `${n} parts (256×256 tiles each)`,
+    fullInfo: (n, d) => `${n} parts · generated ${d}`, fullNone: "none (generate in ⚙ Settings)",
+    mapUpdated: (n) => `Map updated: ${n} parts changed`, loadFail: "Loading the map failed: ",
+    agoS: (s) => `${s}s ago`, agoM: (m) => `${m} min ago`, agoH: (h) => `${h} h ago`,
+    connOk: "Live connection", connBad: "Disconnected - reconnecting",
+    pl_missing: "Player positions: mod not installed", pl_live: (n) => `Player positions: ${n} online`,
+    pl_paused: "Player positions: 0 online (server idle)", pl_stopped: "Player positions: stopped (server off)",
+    pl_error: "Player positions: cannot read players.json", pl_viewer: "Player positions: viewer disconnected - reconnecting",
+    pl_none: "Player positions: -",
+    plGoto: "Click: go to this player", dead: "dead", follow: "Follow",
+    followTitle: "Keep this player centered (drag to stop)",
+    poi_boss: "Boss", poi_chest: "Chest", poi_statue: "Statue", poi_merchant: "Merchant", poi_portal: "Portal",
+    poi_waypoint: "Waypoint", poi_place: "Place/Dungeon", poi_altar: "Altar", poi_core: "Core", poi_other: "Other",
+    poi_scene: "Place", poi_dungeon: "Dungeon",
+    boulderLabel: (k) => `${k} boulder`, boulderSuffix: " (2×2 boulder)", otherCat: (c) => `Other (${c})`,
+    clickToGo: "click to go there", oreVein: (k) => `${k} ore vein`,
+    oreMerged: (c, n) => ` · ${c} tiles (${n} areas merged)`, oreTiles: (c) => ` · ${c} tiles`, near: " (approx.)",
+    boulderTitle: (k) => `${k} ore boulders`, rawCats: "Source categories: ", noOre: "No ore data",
+    poiMissing: "(no data)", poiGenerated: (d) => `(generated ${d})`,
+    poiMissingTitle: "Generate the full map in ⚙ Settings to show these",
+    sumAreas: " areas", sumCount: "",
+    sTitle: "Settings", sPaths: "Server paths", sInstall: "Dedicated server install folder (CoreKeeperServer.exe)",
+    sInstallHint: "Found through Steam automatically. Leave empty for auto-detect.",
+    sData: "Server data folder (ServerConfig.json, servermaps, worlds)",
+    sDataHint: "Usually %USERPROFILE%\\AppData\\LocalLow\\Pugstorm\\Core Keeper\\DedicatedServer. For a Linux/Docker server, copy that folder or map it as a network drive and enter it here. Leave empty for auto.",
+    sWorld: "World", sWorldAuto: (n) => `Follow ServerConfig.json (currently ${n})`,
+    sLan: "Let other devices on my network (LAN) view the map",
+    sLanWarn: "This listens on 0.0.0.0: anyone on your network can see the map, including player names and positions. There is no login — use Windows Firewall to limit which devices/networks may connect. Settings, map generation and mod install only work from this PC.",
+    sPort: "Port", sSave: "Save", sAuto: "Reset to auto-detect", sRedetect: "Detect again",
+    sSaved: "Saved", sRestarting: "Reopening at the new address…",
+    found: "found", missing: "missing", src_auto: "auto-detected", src_config: "set by you", src_cli: "command line",
+    src_steam: "Steam", src_serverconfig: "ServerConfig.json",
+    r_not_found: "Not found — enter it manually", r_no_exe: "CoreKeeperServer.exe is not in this folder",
+    r_no_map: "This folder has no servermaps/<world>.mapparts.gzip for the selected world (it appears after the server has run and saved once)",
+    lanUrls: "Open from other devices:", bindError: "Cannot listen: ",
+    gTitle: "Full map (including unexplored areas)",
+    gDesc: "Copies the installed dedicated server to a scratch folder, starts a disposable server on a copy of your world save, pre-generates the whole world and saves it as a map. Your real server and save are only read. Your real server may keep running. Takes 10-60 minutes depending on the PC.",
+    gStart: "Generate full map", gCancel: "Cancel", gRadius: "Radius (tiles, 0 = auto)", gNever: "Not generated yet",
+    gHave: (n, d) => `Available: ${n} parts · ${d}`,
+    job_running: "running", job_done: "done", job_failed: "failed", job_cancelled: "cancelled",
+    ph_check: "checking", ph_copy: "copying server", ph_prepare: "copying world", ph_start: "starting disposable server",
+    ph_generate: "generating terrain", ph_render: "drawing map", ph_stop: "stopping disposable server", ph_done: "done",
+    e_already_running: "Already generating", e_server_install_missing: "Dedicated server install folder not found",
+    e_world_save_missing: "World save (worlds/<world>.world.gzip) not found",
+    e_work_dir_overlaps_real_server: "Scratch folder overlaps the real server folder — refused",
+    mTitle: "Player position mod (LivePlayers)",
+    mDesc: "A small read-only mod for the dedicated server only. It writes the names, positions and health of connected players to a file every second. Players join with the normal game (requiredOn 0). Install/remove only while the server is stopped; restart the server to apply.",
+    mInstall: "Install / update", mRemove: "Remove",
+    mNot: "not installed", mIs: (v) => `installed (v${v})`, mOld: (v, b) => `installed v${v} — v${b} available`,
+    mRunning: (p) => `Real server is running (PID ${p}) — stop it before installing/removing`, mStopped: "real server stopped",
+    mMaybe: "A CoreKeeperServer.exe with an unreadable location is running — stop it first",
+    mNoInstall: "Needs the dedicated server install folder",
+    mDone_installed: "Installed. Restart the server (its log shows [LivePlayers] ... loaded).",
+    mDone_updated: "Updated. Restart the server.", mDone_removed: "Removed. Takes effect after a server restart.",
+    mDone_not_installed: "It was not installed.",
+    me_server_running: "The server is running. Stop it and try again.",
+    me_server_maybe_running: "A server with an unreadable location is running. Stop it and try again.",
+    me_check_failed: "Could not check whether the server runs — stopped for safety.", me_no_install: "Needs the dedicated server install folder.",
+    feed: "Player position file", appData: "App data folder (settings, pins, generated maps)", open: "Open",
+    notLocal: "Settings can only be changed on the PC running the viewer.",
+  },
+};
+const LANG = (() => {
+  const q = new URLSearchParams(location.search).get("lang");
+  if (q && I18N[q]) return q;
+  try { const s = localStorage.getItem("ckmap.lang"); if (s && I18N[s]) return s; } catch (_) {}
+  return (navigator.language || "en").toLowerCase().startsWith("ko") ? "ko" : "en";
+})();
+function t(key, ...args) {
+  const v = (I18N[LANG] && I18N[LANG][key]) ?? I18N.en[key] ?? key;
+  return typeof v === "function" ? v(...args) : v;
+}
+function applyI18n(root = document) {
+  document.documentElement.lang = LANG;
+  for (const el of root.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n);
+  for (const el of root.querySelectorAll("[data-i18n-html]")) el.innerHTML = t(el.dataset.i18nHtml);
+  for (const el of root.querySelectorAll("[data-i18n-title]")) el.title = t(el.dataset.i18nTitle);
+}
+let isAdmin = false;
+applyI18n();
+const PART = 256;
+const cv = document.getElementById("map");
+const ctx = cv.getContext("2d");
+const liveCv = document.getElementById("live");   // players only: redrawn per frame, never touches the map canvas
+const lctx = liveCv.getContext("2d");
+const $ = (id) => document.getElementById(id);
+
+// ---- state ----
+const layers = { full: new Map(), live: new Map() };  // "x,y" -> {x, y, v, img, flashAt}
+const tiles = layers.live;
+let showFull = true, dimUnexplored = true;
+let cam = { x: 0, y: 0, zoom: 2 }; // world tile at screen center; screen px per world tile
+let showGrid = false, showFlash = true;
+let markers = [];
+let mapInfo = null;
+let hover = null;
+let dpr = window.devicePixelRatio || 1;
+
+try {
+  const saved = JSON.parse(localStorage.getItem("ckmap.cam") || "null");
+  if (saved && isFinite(saved.zoom)) cam = saved;
+  showGrid = localStorage.getItem("ckmap.grid") === "1";
+  showFull = localStorage.getItem("ckmap.full") !== "0";
+  dimUnexplored = localStorage.getItem("ckmap.dim") !== "0";
+} catch (_) {}
+{ // ?at=x,y[,zoom] — open at a world position (shareable links, screenshots)
+  const at = (new URLSearchParams(location.search).get("at") || "").split(",").map(Number);
+  if (at.length >= 2 && at.every(isFinite)) cam = { x: at[0], y: at[1], zoom: at[2] > 0 ? at[2] : cam.zoom };
+}
+
+// ---- coordinate transforms (world y is north-up) ----
+const toScreen = (wx, wy) => [(wx - cam.x) * cam.zoom + cv.width / dpr / 2,
+                              (cam.y - wy) * cam.zoom + cv.height / dpr / 2];
+const toWorld = (sx, sy) => [(sx - cv.width / dpr / 2) / cam.zoom + cam.x,
+                             cam.y - (sy - cv.height / dpr / 2) / cam.zoom];
+
+// ---- rendering ----
+let dirty = true;
+const requestDraw = () => { dirty = true; };
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(innerWidth * dpr);
+  cv.height = Math.round(innerHeight * dpr);
+  liveCv.width = cv.width; liveCv.height = cv.height;
+  requestDraw();
+}
+
+function draw(now) {
+  const flashing = showFlash && [...tiles.values()].some(t => t.flashAt && now - t.flashAt < 4000);
+  if (!dirty && !flashing) return;
+  dirty = false;
+  const W = cv.width / dpr, H = cv.height / dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#0d0f14";
+  ctx.fillRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = cam.zoom < 1;
+
+  const size = PART * cam.zoom;
+  if (showFull && layers.full.size) {
+    ctx.globalAlpha = dimUnexplored ? 0.38 : 1;
+    for (const t of layers.full.values()) {
+      const [sx, sy] = toScreen(t.x * PART, (t.y + 1) * PART);
+      if (sx > W || sy > H || sx + size < 0 || sy + size < 0) continue;
+      if (t.img) ctx.drawImage(t.img, sx, sy, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+  for (const t of tiles.values()) {
+    const [sx, sy] = toScreen(t.x * PART, (t.y + 1) * PART);
+    if (sx > W || sy > H || sx + size < 0 || sy + size < 0) continue;
+    if (t.img) ctx.drawImage(t.img, sx, sy, size, size);
+    if (showGrid) {
+      ctx.strokeStyle = "#ffffff22"; ctx.lineWidth = 1;
+      ctx.strokeRect(sx + .5, sy + .5, size, size);
+      if (size > 80) {
+        ctx.fillStyle = "#ffffff66"; ctx.font = "11px sans-serif";
+        ctx.fillText(`${t.x},${t.y}`, sx + 4, sy + 13);
+      }
+    }
+    if (showFlash && t.flashAt) {
+      const a = 1 - (now - t.flashAt) / 4000;
+      if (a > 0) {
+        ctx.strokeStyle = `rgba(242,179,61,${a})`; ctx.lineWidth = 3;
+        ctx.strokeRect(sx + 1.5, sy + 1.5, size - 3, size - 3);
+      } else t.flashAt = 0;
+    }
+  }
+
+  // origin (core area)
+  const [ox, oy] = toScreen(0, 0);
+  ctx.strokeStyle = "#f2b33d"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(ox, oy, 7, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox - 11, oy); ctx.lineTo(ox + 11, oy);
+  ctx.moveTo(ox, oy - 11); ctx.lineTo(ox, oy + 11); ctx.stroke();
+
+  drawPoiLayer(W, H);
+  drawPoiHover(ctx, hoverPoi);
+
+  // markers
+  ctx.font = "600 12px 'Segoe UI', 'Malgun Gothic', sans-serif";
+  ctx.textBaseline = "middle";
+  for (const m of markers) {
+    const [mx, my] = toScreen(m.x + .5, m.y + .5);
+    if (mx < -100 || my < -30 || mx > W + 100 || my > H + 30) continue;
+    ctx.fillStyle = m.color || "#ffd54a";
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mx - 6, my - 12); ctx.lineTo(mx + 6, my - 12);
+    ctx.closePath(); ctx.stroke(); ctx.fill();
+    if (m.name) {
+      ctx.lineWidth = 3; ctx.strokeText(m.name, mx + 9, my - 10);
+      ctx.fillStyle = "#fff"; ctx.fillText(m.name, mx + 9, my - 10);
+    }
+  }
+
+  // hovered world tile
+  if (hover && cam.zoom >= 3) {
+    const [hx, hy] = toScreen(hover[0], hover[1] + 1);
+    ctx.strokeStyle = "#ffffffaa"; ctx.lineWidth = 1;
+    ctx.strokeRect(hx + .5, hy + .5, cam.zoom, cam.zoom);
+  }
+  $("zoomv").textContent = cam.zoom >= 1 ? `${cam.zoom.toFixed(1)}x` : `1/${(1 / cam.zoom).toFixed(1)}`;
+}
+
+function loop(now) { updateFollow(now); draw(now); drawPlayers(now); requestAnimationFrame(loop); }
+
+// ---- camera ----
+function saveCam() {
+  try { localStorage.setItem("ckmap.cam", JSON.stringify(cam)); } catch (_) {}
+}
+function zoomAt(sx, sy, factor) {
+  const [wx, wy] = toWorld(sx, sy);
+  cam.zoom = Math.min(32, Math.max(0.125, cam.zoom * factor));
+  const [nx, ny] = toWorld(sx, sy);
+  cam.x += wx - nx; cam.y += wy - ny;
+  requestDraw(); saveCam();
+}
+const allTiles = () => showFull ? [...layers.full.values(), ...tiles.values()] : [...tiles.values()];
+function fitAll() {
+  if (!allTiles().length) return;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const t of allTiles()) {
+    x0 = Math.min(x0, t.x); x1 = Math.max(x1, t.x + 1);
+    y0 = Math.min(y0, t.y); y1 = Math.max(y1, t.y + 1);
+  }
+  const W = innerWidth, H = innerHeight;
+  cam.x = (x0 + x1) / 2 * PART; cam.y = (y0 + y1) / 2 * PART;
+  const z = Math.min(W / ((x1 - x0) * PART), H / ((y1 - y0) * PART)) * 0.92;
+  cam.zoom = Math.pow(2, Math.floor(Math.log2(z) * 4) / 4);
+  requestDraw(); saveCam();
+}
+function goTo(x, y, zoom) {
+  cam.x = x; cam.y = y; if (zoom) cam.zoom = zoom;
+  requestDraw(); saveCam();
+}
+
+// ---- input: pointer drag + pinch ----
+const pointers = new Map();
+let pinchStart = null, moved = false;
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  moved = false;
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinchStart = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: cam.zoom };
+  }
+  cv.classList.add("dragging");
+});
+cv.addEventListener("pointermove", (e) => {
+  const [wx, wy] = toWorld(e.clientX, e.clientY);
+  hover = [Math.floor(wx), Math.floor(wy)];
+  $("coord").textContent = `x ${hover[0]}, y ${hover[1]}`;
+  const p = pointers.get(e.pointerId);
+  if (!p) { updateHover(e.clientX, e.clientY); if (cam.zoom >= 3) requestDraw(); return; }
+  setHover(null);
+  if (pointers.size === 2 && pinchStart) {
+    p.x = e.clientX; p.y = e.clientY;
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, (pinchStart.zoom * d / pinchStart.d) / cam.zoom);
+    return;
+  }
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  if (Math.abs(dx) + Math.abs(dy) > 2) { moved = true; if (pl.follow) setFollow(null); }
+  cam.x -= dx / cam.zoom; cam.y += dy / cam.zoom;
+  p.x = e.clientX; p.y = e.clientY;
+  requestDraw();
+});
+const endPointer = (e) => {
+  if (e.type === "pointerup" && !moved && pointers.size === 1) {
+    const h = hitPoi(e.clientX, e.clientY);
+    if (h && h.obj) goTo(h.x + .5, h.y + .5, Math.max(cam.zoom, 4));
+  }
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinchStart = null;
+  if (!pointers.size) { cv.classList.remove("dragging"); saveCam(); }
+};
+cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("pointercancel", endPointer);
+cv.addEventListener("pointerleave", () => setHover(null));
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault(); setHover(null);
+  zoomAt(e.clientX, e.clientY, Math.pow(2, -Math.sign(e.deltaY) * 0.25));
+}, { passive: false });
+cv.addEventListener("dblclick", (e) => {
+  const [wx, wy] = toWorld(e.clientX, e.clientY);
+  const name = prompt(t("pinPrompt", Math.floor(wx), Math.floor(wy)), "");
+  if (name === null) return;
+  const colors = ["#ffd54a", "#ff6b6b", "#4dd4ff", "#7ee081", "#c792ea"];
+  markers.push({ x: Math.floor(wx), y: Math.floor(wy), name: name.trim(),
+                 color: colors[markers.length % colors.length] });
+  saveMarkers();
+});
+
+// ---- UI ----
+$("toggle").onclick = () => {
+  $("panel").classList.toggle("collapsed");
+  $("toggle").textContent = $("panel").classList.contains("collapsed") ? "+" : "–";
+};
+$("bCore").onclick = () => goTo(0, 0, Math.max(cam.zoom, 2));
+$("bFit").onclick = fitAll;
+$("bGrid").onclick = () => {
+  showGrid = !showGrid; $("bGrid").classList.toggle("on", showGrid);
+  try { localStorage.setItem("ckmap.grid", showGrid ? "1" : "0"); } catch (_) {}
+  requestDraw();
+};
+$("bGrid").classList.toggle("on", showGrid);
+$("bFlash").onclick = () => {
+  showFlash = !showFlash; $("bFlash").classList.toggle("on", showFlash); requestDraw();
+};
+$("bPng").onclick = exportPng;
+function bindToggle(id, key, get, set) {
+  $(id).classList.toggle("on", get());
+  $(id).onclick = () => {
+    set(!get()); $(id).classList.toggle("on", get());
+    try { localStorage.setItem(key, get() ? "1" : "0"); } catch (_) {}
+    requestDraw();
+  };
+}
+bindToggle("bFull", "ckmap.full", () => showFull, (v) => { showFull = v; });
+bindToggle("bDim", "ckmap.dim", () => dimUnexplored, (v) => { dimUnexplored = v; });
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+function renderMarkerList() {
+  const ul = $("mlist"); ul.textContent = "";
+  $("mcount").textContent = markers.length ? `(${markers.length})` : "";
+  markers.forEach((m, i) => {
+    const li = document.createElement("li");
+    const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = m.color;
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = m.name || t("noName");
+    nm.onclick = () => goTo(m.x + .5, m.y + .5, Math.max(cam.zoom, 4));
+    const co = document.createElement("span"); co.className = "co"; co.textContent = `${m.x}, ${m.y}`;
+    const del = document.createElement("button"); del.textContent = "×"; del.title = t("del");
+    del.onclick = () => { markers.splice(i, 1); saveMarkers(); };
+    li.append(sw, nm, co, del); ul.append(li);
+  });
+  if (!markers.length) {
+    const li = document.createElement("li"); li.className = "muted"; li.textContent = t("pinHint");
+    ul.append(li);
+  }
+}
+
+async function saveMarkers() {
+  renderMarkerList(); requestDraw();
+  try {
+    const r = await fetch("/api/markers", { method: "PUT", body: JSON.stringify(markers),
+      headers: { "Content-Type": "application/json", "X-CKMV": "1" } });
+    if (!r.ok) throw new Error(r.status);
+  } catch (e) { toast(t("pinSaveFail") + e.message); }
+}
+
+async function loadMarkers() {
+  try { markers = await (await fetch("/api/markers")).json(); } catch (_) { markers = []; }
+  renderMarkerList(); requestDraw();
+}
+
+function exportPng() {
+  if (!allTiles().length) return;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const t of allTiles()) {
+    x0 = Math.min(x0, t.x); x1 = Math.max(x1, t.x); y0 = Math.min(y0, t.y); y1 = Math.max(y1, t.y);
+  }
+  const c = document.createElement("canvas");
+  c.width = (x1 - x0 + 1) * PART; c.height = (y1 - y0 + 1) * PART;
+  const g = c.getContext("2d");
+  g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);
+  if (showFull) {
+    g.globalAlpha = dimUnexplored ? 0.38 : 1;
+    for (const t of layers.full.values())
+      if (t.img) g.drawImage(t.img, (t.x - x0) * PART, (y1 - t.y) * PART);
+    g.globalAlpha = 1;
+  }
+  for (const t of tiles.values())
+    if (t.img) g.drawImage(t.img, (t.x - x0) * PART, (y1 - t.y) * PART);
+  renderPois(g, { toS: (wx, wy) => [wx - x0 * PART, (y1 + 1) * PART - wy], zoom: 1,
+                  W: c.width, H: c.height });
+  const a = document.createElement("a");
+  a.download = `corekeeper_map_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.png`;
+  a.href = c.toDataURL("image/png"); a.click();
+}
+
+// ---- data sync ----
+function loadImage(url) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img); img.onerror = rej; img.src = url;
+  });
+}
+
+let syncing = false, pendingSync = false, firstLoad = true;
+async function sync() {
+  if (syncing) { pendingSync = true; return; }
+  syncing = true;
+  try {
+    const info = await (await fetch("/api/map")).json();
+    $("title").textContent = info.server?.worldName || t("title");
+    document.title = `${$("title").textContent} · ${t("title")}`;
+    const live = info.layers.live, full = info.layers.full;
+    const errs = [live.error && t("mapErr_" + live.error), full.error && t("stFull") + ": " + t("mapErr_" + full.error)].filter(Boolean);
+    $("setupCta").hidden = !(live.error && isAdmin);
+    $("err").hidden = !errs.length; $("err").textContent = errs.join(" / ");
+    let changed = 0;
+    for (const [name, snap] of Object.entries(info.layers)) {
+      const store = layers[name]; if (!store) continue;
+      const seen = new Set();
+      await Promise.all(snap.tiles.map(async (t) => {
+        const k = `${t.x},${t.y}`; seen.add(k);
+        const cur = store.get(k);
+        if (cur && cur.v === t.v) return;
+        const img = await loadImage(`/api/tile/${name}/${t.x}/${t.y}.png?v=${t.v}`);
+        store.set(k, { x: t.x, y: t.y, v: t.v, img,
+                       flashAt: firstLoad || name !== "live" ? 0 : performance.now() });
+        if (name === "live") { changed++; poi.liveRev++; }
+        requestDraw();  // paint parts as they arrive instead of after the whole batch
+      }));
+      for (const k of [...store.keys()]) if (!seen.has(k)) {
+        store.delete(k); if (name === "live") { changed++; poi.liveRev++; }
+      }
+    }
+    mapInfo = live;
+    if (info.pois && info.pois.v !== poi.v) await loadPois(info.pois);
+    $("parts").textContent = t("partsInfo", tiles.size);
+    $("full").textContent = layers.full.size
+      ? t("fullInfo", layers.full.size, new Date(full.updatedAt * 1000).toLocaleString())
+      : t("fullNone");
+    updateAgo();
+    if (firstLoad) {
+      if (!localStorage.getItem("ckmap.cam") && !new URLSearchParams(location.search).has("at")) fitAll();
+      firstLoad = false;
+    } else if (changed) toast(t("mapUpdated", changed));
+    requestDraw();
+  } catch (e) {
+    $("err").hidden = false; $("err").textContent = t("loadFail") + e.message;
+  } finally {
+    syncing = false;
+    if (pendingSync) { pendingSync = false; sync(); }
+  }
+}
+
+function updateAgo() {
+  if (!mapInfo?.updatedAt) { $("updated").textContent = "-"; return; }
+  const d = new Date(mapInfo.updatedAt * 1000);
+  const s = Math.max(0, Math.round(Date.now() / 1000 - mapInfo.updatedAt));
+  const ago = s < 60 ? t("agoS", s) : s < 3600 ? t("agoM", Math.floor(s / 60)) : t("agoH", Math.floor(s / 3600));
+  $("updated").textContent = `${d.toLocaleTimeString()} (${ago})`;
+}
+setInterval(updateAgo, 5000);
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onopen = () => { $("conn").className = "dot ok"; $("conn").title = t("connOk"); };
+  es.onmessage = () => sync();
+  es.addEventListener("players", (e) => { try { applyPlayers(JSON.parse(e.data)); } catch (_) {} });
+  es.addEventListener("job", (e) => { try { renderJob(JSON.parse(e.data)); } catch (_) {} });
+  es.addEventListener("status", () => loadStatus());
+  es.onerror = () => {
+    $("conn").className = "dot bad"; $("conn").title = t("connBad");
+    applyPlayers({ status: "viewer", players: [] });
+  };
+}
+
+// ---- live players (LivePlayers server mod -> players.json -> SSE "players") ----
+const PL_COLORS = ["#ff5c8a", "#4dd4ff", "#7ee081", "#ffb347", "#c792ea", "#ffe156", "#5ef2d6", "#ff8a5c"];
+const pl = { list: new Map(), status: null, follow: null, lastAt: 0, interval: 1000, dirty: true, order: [] };
+const PL_STATUS = {  // status -> css class (text: t("pl_" + status))
+  missing: "muted", live: "live", paused: "live", stopped: "stopped", error: "error", viewer: "stopped",
+};
+function plColor() {  // first free palette color, so players online together never share one
+  const used = new Set([...pl.list.values()].map(p => p.color));
+  return PL_COLORS.find(c => !used.has(c)) || PL_COLORS[pl.list.size % PL_COLORS.length];
+}
+function plPos(p, now) {  // linear interpolation from the previous shown position to the new target
+  const k = p.dur > 0 ? Math.min(1, Math.max(0, (now - p.t0) / p.dur)) : 1;
+  return [p.fx + (p.tx - p.fx) * k, p.fy + (p.ty - p.fy) * k];
+}
+function applyPlayers(snap) {
+  const now = performance.now();
+  if (pl.lastAt) pl.interval = Math.min(2000, Math.max(300, now - pl.lastAt));
+  pl.lastAt = now;
+  const seen = new Set();
+  for (const q of snap.players || []) {
+    const id = q.id || q.name; seen.add(id);
+    let p = pl.list.get(id);
+    if (!p) {
+      p = { id, color: plColor(), fx: q.x, fy: q.y, tx: q.x, ty: q.y, t0: now, dur: 0 };
+      pl.list.set(id, p);
+    } else {
+      const [cx, cy] = plPos(p, now);
+      const jump = Math.hypot(q.x - cx, q.y - cy) > 48;   // teleport/respawn: snap instead of gliding
+      p.fx = jump ? q.x : cx; p.fy = jump ? q.y : cy; p.tx = q.x; p.ty = q.y;
+      p.t0 = now; p.dur = jump ? 0 : pl.interval * 1.05;
+    }
+    Object.assign(p, { name: q.name, hp: q.hp, maxHp: q.maxHp, dead: q.dead });
+  }
+  for (const id of [...pl.list.keys()]) if (!seen.has(id)) pl.list.delete(id);
+  if (pl.follow && !pl.list.has(pl.follow)) setFollow(null);
+  pl.status = snap.status;
+  pl.dirty = true;
+  renderPlayerPanel();
+}
+function renderPlayerPanel() {
+  const n = pl.list.size, known = pl.status in PL_STATUS;
+  $("plStatus").textContent = pl.status === "live" ? t("pl_live", n) : known ? t("pl_" + pl.status) : t("pl_none");
+  $("plStatus").className = known ? PL_STATUS[pl.status] : "muted";
+  $("plMeta").textContent = n ? `(${n})` : "";
+  const ul = $("plist"); ul.textContent = "";
+  for (const p of [...pl.list.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
+    const li = document.createElement("li"); if (p.dead) li.className = "dead";
+    const dot = document.createElement("span"); dot.className = "pd"; dot.style.background = p.color;
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = p.name;
+    nm.title = t("plGoto");
+    nm.onclick = () => { const [x, y] = plPos(p, performance.now()); goTo(x + .5, y + .5, Math.max(cam.zoom, 4)); };
+    const hp = document.createElement("span"); hp.className = "hp";
+    hp.textContent = p.dead ? t("dead") : p.hp != null && p.maxHp ? `${p.hp}/${p.maxHp}` : "";
+    const co = document.createElement("span"); co.className = "co";
+    co.textContent = `${Math.floor(p.tx)}, ${Math.floor(p.ty)}`;
+    const fb = document.createElement("button"); fb.textContent = t("follow"); fb.title = t("followTitle");
+    fb.classList.toggle("on", pl.follow === p.id);
+    fb.onclick = () => setFollow(pl.follow === p.id ? null : p.id);
+    li.append(dot, nm, hp, co, fb); ul.append(li);
+  }
+}
+function setFollow(id) {
+  pl.follow = id;
+  if (id) { const p = pl.list.get(id); if (p) { cam.zoom = Math.max(cam.zoom, 2); } }
+  renderPlayerPanel(); requestDraw();
+}
+function updateFollow(now) {
+  const p = pl.follow && pl.list.get(pl.follow);
+  if (!p) return;
+  let [x, y] = plPos(p, now); x += .5; y += .5;
+  if (Math.abs(x - cam.x) > 1e-3 || Math.abs(y - cam.y) > 1e-3) { cam.x = x; cam.y = y; requestDraw(); }
+}
+let plCam = "";
+function drawPlayers(now) {
+  const camKey = `${cam.x},${cam.y},${cam.zoom},${liveCv.width},${liveCv.height}`;
+  const moving = [...pl.list.values()].some(p => now - p.t0 < p.dur);
+  if (!pl.dirty && !moving && camKey === plCam) return;   // nothing changed: keep last frame
+  pl.dirty = false; plCam = camKey;
+  const W = liveCv.width / dpr, H = liveCv.height / dpr, g = lctx;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  if (!pl.list.size) return;
+  g.font = "700 12.5px 'Segoe UI', 'Malgun Gothic', sans-serif";
+  g.textAlign = "center"; g.textBaseline = "alphabetic";
+  const r = Math.max(8, Math.min(12, cam.zoom * 1.2));   // fixed-ish pixel size at every zoom
+  for (const p of pl.list.values()) {
+    const [wx, wy] = plPos(p, now);
+    const [sx, sy] = toScreen(wx + .5, wy + .5);
+    if (sx < -80 || sy < -60 || sx > W + 80 || sy > H + 60) continue;
+    g.beginPath(); g.arc(sx, sy, r + 7, 0, Math.PI * 2);   // halo: stands out from the POI icons
+    g.fillStyle = p.dead ? "#6b728055" : p.color + "55"; g.fill();
+    g.beginPath(); g.arc(sx, sy, r + 2.5, 0, Math.PI * 2); g.fillStyle = "#000c"; g.fill();
+    g.beginPath(); g.arc(sx, sy, r, 0, Math.PI * 2);
+    g.fillStyle = p.dead ? "#6b7280" : p.color; g.fill();
+    g.lineWidth = 2; g.strokeStyle = "#fff"; g.stroke();
+    if (p.dead) {
+      const d = r * 0.5; g.beginPath(); g.moveTo(sx - d, sy - d); g.lineTo(sx + d, sy + d);
+      g.moveTo(sx + d, sy - d); g.lineTo(sx - d, sy + d); g.lineWidth = 2; g.strokeStyle = "#fff"; g.stroke();
+    }
+    const label = p.name || "?", ly = sy - r - 11, tw = g.measureText(label).width;
+    g.fillStyle = "#0b0d12e6"; g.fillRect(sx - tw / 2 - 5, ly - 13, tw + 10, 18);   // name pill
+    g.fillStyle = p.dead ? "#6b7280" : p.color; g.fillRect(sx - tw / 2 - 5, ly + 3, tw + 10, 2);
+    g.fillStyle = "#fff"; g.fillText(label, sx, ly);
+    if (p.hp != null && p.maxHp > 0) {
+      const bw = 30, bh = 4, bx = sx - bw / 2, by = sy + r + 8, f = Math.max(0, Math.min(1, p.hp / p.maxHp));
+      g.fillStyle = "#000d"; g.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+      g.fillStyle = f > .5 ? "#4cc38a" : f > .25 ? "#f2b33d" : "#e5484d"; g.fillRect(bx, by, bw * f, bh);
+    }
+  }
+}
+async function loadPlayers() {
+  try { applyPlayers(await (await fetch("/api/players")).json()); } catch (_) {}
+}
+
+// ---- POI overlay (fullmap/<world>.pois.json) ----
+const POI_GROUPS = [  // key (label = t("poi_<k>")), color, shape, icon radius(px), source categories
+  { k: "boss",       color: "#ff4d5e", shape: "star",    size: 8.5 },
+  { k: "chest",      color: "#ffc53d", shape: "chest",   size: 5 },
+  { k: "statue",     color: "#c9d4e2", shape: "tri",     size: 6 },
+  { k: "merchant",   color: "#7ee081", shape: "circle",  size: 5.5 },
+  { k: "portal",     color: "#b98cff", shape: "ring",    size: 6.5 },
+  { k: "waypoint",   color: "#4dd4ff", shape: "diamond", size: 6.5 },
+  { k: "place",      color: "#ff9f43", shape: "square",  size: 5.5, cats: ["scene", "dungeon"] },
+  { k: "altar",      color: "#f78fb3", shape: "tridown", size: 6 },
+  { k: "core",       color: "#f2b33d", shape: "circle",  size: 6 },
+  { k: "other",      color: "#a3adbd", shape: "dot",     size: 3.5 },
+];
+for (const gr of POI_GROUPS) gr.label = t("poi_" + gr.k);
+const POI_CAT_LABEL = { scene: t("poi_scene"), dungeon: t("poi_dungeon") };
+const POI_GROUP_OF = {};
+for (const gr of POI_GROUPS) for (const c of gr.cats || [gr.k]) POI_GROUP_OF[c] = gr;
+const ORE_INFO = {
+  Copper: ["구리", "#e8865a"], Tin: ["주석", "#a9b8c2"], Iron: ["철", "#dcb4a4"], Gold: ["금", "#ffd84d"],
+  Scarlet: ["스칼렛", "#ff4058"], Octarine: ["옥타린", "#a57aff"], Galaxite: ["갤럭사이트", "#62d8ff"],
+  Solarite: ["솔라라이트", "#ffa726"], Pandorium: ["판도리움", "#3ee8a8"],
+  Relucite: ["렐루사이트", "#e070ff"],
+};
+if (LANG !== "ko") for (const k of Object.keys(ORE_INFO)) ORE_INFO[k][0] = k;
+const ORE_ORDER = Object.keys(ORE_INFO);
+// 2x2 ore boulders get one group per ore kind, separate from ore veins inside walls
+const BOULDER_GROUPS = [], BOULDER_GROUP_OF = {};
+function boulderGroup(name) {
+  const kind = String(name).replace(/OreBoulder$|Boulder$/, "") || "Unknown";
+  let gr = BOULDER_GROUP_OF[kind];
+  if (!gr) {
+    const [ko, color] = oreInfo(kind);
+    gr = BOULDER_GROUP_OF[kind] = { k: "boulder:" + kind, label: t("boulderLabel", ko), color, shape: "hex", size: 6, boulder: true, kind };
+    BOULDER_GROUPS.push(gr);
+  }
+  return gr;
+}
+function oreInfo(kind) {
+  if (ORE_INFO[kind]) return ORE_INFO[kind];
+  let h = 0; for (const ch of String(kind)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return (ORE_INFO[kind] = [String(kind), `hsl(${h % 360} 75% 62%)`]);
+}
+const prettyName = (n) => String(n).replace(/_/g, " ").replace(/([a-z])([A-Z0-9])/g, "$1 $2");
+
+const poi = {
+  v: null, missing: true, generatedAt: null, objects: [], ores: [], oreKinds: [],
+  gen: 0, off: new Set(), filter: "all", liveRev: 0, flagRev: -1, stateKey: null, agg: new Map(), counts: null,
+};
+try {
+  const saved = JSON.parse(localStorage.getItem("ckmap.poi") || "null");
+  if (saved) { poi.off = new Set(saved.off || []); poi.filter = saved.filter || "all"; }
+} catch (_) {}
+{ const f = new URLSearchParams(location.search).get("poifilter");  // one-off override (links, screenshots)
+  if (["all", "explored", "unexplored"].includes(f)) poi.filter = f; }
+const savePoiPrefs = () => {
+  poi.gen++;
+  try { localStorage.setItem("ckmap.poi", JSON.stringify({ off: [...poi.off], filter: poi.filter })); } catch (_) {}
+};
+const objKey = (gk) => "o:" + gk, oreKey = (kind) => "r:" + kind;
+
+async function loadPois(meta) {
+  let data;
+  try { data = await (await fetch("/api/pois")).json(); } catch (_) { return; }
+  poi.v = meta.v;
+  poi.missing = !!data.missing;
+  poi.generatedAt = data.generatedAt || null;
+  poi.objects = (data.objects || []).filter(o => isFinite(o.x) && isFinite(o.y)).map(o => ({
+    cat: String(o.cat || "other"), name: String(o.name || ""), x: +o.x, y: +o.y,
+    g: o.cat === "oreBoulder" ? boulderGroup(o.name) : (POI_GROUP_OF[o.cat] || POI_GROUP_OF.other), exp: false }));
+  BOULDER_GROUPS.sort((a, b) => (ORE_ORDER.indexOf(a.kind) + 1 || 99) - (ORE_ORDER.indexOf(b.kind) + 1 || 99));
+  poi.ores = (data.ores || []).filter(o => isFinite(o.x) && isFinite(o.y)).map(o => ({
+    kind: String(o.kind), x: +o.x, y: +o.y, count: Math.max(1, +o.count || 1), exp: false }));
+  const kinds = new Set(poi.ores.map(o => o.kind));
+  poi.oreKinds = [...ORE_ORDER.filter(k => kinds.has(k)), ...[...kinds].filter(k => !ORE_INFO[k]).sort()];
+  poi.flagRev = -1; poi.stateKey = null; poi.agg.clear(); poi.counts = null;
+  poi.gen++; buildPoiPanel(); requestDraw();
+}
+
+// explored-ness = live layer pixel alpha at that tile
+const liveAlpha = new Map();  // "x,y" -> {v, a: Uint8Array(256*256)}
+const sampCv = document.createElement("canvas"); sampCv.width = sampCv.height = PART;
+const sampG = sampCv.getContext("2d", { willReadFrequently: true });
+function isExplored(x, y) {
+  const tx = Math.floor(x / PART), ty = Math.floor(y / PART), k = `${tx},${ty}`;
+  const t = tiles.get(k);
+  if (!t || !t.img) return false;
+  let e = liveAlpha.get(k);
+  if (!e || e.v !== t.v) {
+    sampG.clearRect(0, 0, PART, PART); sampG.drawImage(t.img, 0, 0);
+    const d = sampG.getImageData(0, 0, PART, PART).data, a = new Uint8Array(PART * PART);
+    for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3];
+    liveAlpha.set(k, e = { v: t.v, a });
+  }
+  const col = Math.floor(x) - tx * PART, row = PART - 1 - (Math.floor(y) - ty * PART);
+  return e.a[row * PART + col] > 16;
+}
+function refreshPoiFlags() {
+  const key = poi.filter === "all" ? "all" : poi.filter + ":" + poi.liveRev;
+  if (poi.stateKey === key) return;
+  if (poi.filter !== "all" && poi.flagRev !== poi.liveRev) {
+    for (const o of poi.objects) o.exp = isExplored(o.x, o.y);
+    for (const o of poi.ores)  // a bucket counts as explored if any of 5 sample points is
+      o.exp = isExplored(o.x, o.y) || isExplored(o.x - 5, o.y - 5) || isExplored(o.x + 5, o.y - 5) ||
+              isExplored(o.x - 5, o.y + 5) || isExplored(o.x + 5, o.y + 5);
+    poi.flagRev = poi.liveRev;
+  }
+  poi.stateKey = key;
+  poi.agg.clear();
+  const counts = new Map();
+  for (const o of poi.objects) if (poiPass(o)) counts.set(objKey(o.g.k), (counts.get(objKey(o.g.k)) || 0) + 1);
+  for (const o of poi.ores) if (poiPass(o)) counts.set(oreKey(o.kind), (counts.get(oreKey(o.kind)) || 0) + 1);
+  poi.counts = counts;
+  updatePoiCounts();
+}
+const poiPass = (o) => poi.filter === "all" || (poi.filter === "explored") === o.exp;
+
+// ore buckets aggregated into a coarser grid (16 << level tiles) so zoomed-out views stay readable/fast
+const oreLevel = (zoom) => { let l = 0; while ((16 << l) * zoom < 14 && l < 8) l++; return l; };
+function oreCells(kind, lvl) {
+  const key = kind + "|" + lvl;
+  let cells = poi.agg.get(key);
+  if (cells) return cells;
+  const G = 16 << lvl, m = new Map();
+  for (const o of poi.ores) {
+    if (o.kind !== kind || !poiPass(o)) continue;
+    const ck = Math.floor(o.x / G) + "," + Math.floor(o.y / G);
+    const c = m.get(ck);
+    if (c) { c.sx += o.x * o.count; c.sy += o.y * o.count; c.count += o.count; c.n++; }
+    else m.set(ck, { sx: o.x * o.count, sy: o.y * o.count, count: o.count, n: 1 });
+  }
+  cells = [];
+  for (const c of m.values()) cells.push({ kind, x: c.sx / c.count, y: c.sy / c.count, count: c.count, n: c.n });
+  poi.agg.set(key, cells);
+  return cells;
+}
+function oreRadius(c, lvl, zoom) {
+  const G = 16 << lvl, cellPx = G * zoom;
+  const d = Math.min(1, c.count / (G * G * 0.1));
+  return Math.max(1.4, Math.min(cellPx * 0.28, 8) * Math.sqrt(d));
+}
+
+// zoomed in, kinds sharing a bucket would sit on the exact same point: fan them out a little
+function oreOffset(kind, lvl, zoom) {
+  const cellPx = (16 << lvl) * zoom;
+  if (cellPx < 24) return [0, 0];
+  const i = Math.max(0, poi.oreKinds.indexOf(kind)), a = i * 2.39996, d = Math.min(cellPx * 0.2, 7);
+  return [Math.cos(a) * d, Math.sin(a) * d];
+}
+function iconScale(zoom) { return zoom >= 1 ? 1 : Math.max(0.6, 1 + Math.log2(zoom) * 0.15); }
+function shapePath(g, shape, x, y, s) {
+  switch (shape) {
+    case "star": {
+      g.moveTo(x, y - s);
+      for (let i = 1; i < 10; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? s * 0.45 : s;
+        g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      }
+      g.closePath(); break;
+    }
+    case "hex":
+      g.moveTo(x + s, y);
+      for (let i = 1; i < 6; i++) g.lineTo(x + Math.cos(i * Math.PI / 3) * s, y + Math.sin(i * Math.PI / 3) * s);
+      g.closePath(); break;
+    case "chest": g.rect(x - s * 1.1, y - s * 0.8, s * 2.2, s * 1.6); break;
+    case "tri": g.moveTo(x, y - s * 1.1); g.lineTo(x + s, y + s * 0.75); g.lineTo(x - s, y + s * 0.75); g.closePath(); break;
+    case "tridown": g.moveTo(x, y + s * 1.1); g.lineTo(x + s, y - s * 0.75); g.lineTo(x - s, y - s * 0.75); g.closePath(); break;
+    case "diamond": g.moveTo(x, y - s * 1.2); g.lineTo(x + s * 0.85, y); g.lineTo(x, y + s * 1.2); g.lineTo(x - s * 0.85, y); g.closePath(); break;
+    case "square": g.rect(x - s * 0.9, y - s * 0.9, s * 1.8, s * 1.8); break;
+    default: g.moveTo(x + s, y); g.arc(x, y, s, 0, Math.PI * 2);
+  }
+}
+function drawIconBatch(g, gr, pts, sc) {
+  const s = gr.size * sc;
+  g.beginPath();
+  for (const [x, y] of pts) shapePath(g, gr.shape, x, y, s);
+  g.lineJoin = "round";
+  if (gr.shape === "ring") {  // hollow ring: dark halo + colored stroke
+    g.strokeStyle = "rgba(0,0,0,.75)"; g.lineWidth = 4.5; g.stroke();
+    g.strokeStyle = gr.color; g.lineWidth = 2.2; g.stroke();
+    return;
+  }
+  g.strokeStyle = "rgba(0,0,0,.8)"; g.lineWidth = 2.5; g.stroke();
+  g.fillStyle = gr.color; g.fill();
+  if (gr.shape === "chest" && s >= 4) {  // lid line
+    g.beginPath();
+    for (const [x, y] of pts) { g.moveTo(x - s * 1.1, y - s * 0.15); g.lineTo(x + s * 1.1, y - s * 0.15); }
+    g.strokeStyle = "rgba(60,35,0,.9)"; g.lineWidth = 1.2; g.stroke();
+  }
+}
+
+function renderPois(g, view) {
+  if (!poi.objects.length && !poi.ores.length) return;
+  refreshPoiFlags();
+  const { toS, zoom, W, H } = view;
+  g.save();
+  // ores (under objects)
+  const lvl = oreLevel(zoom);
+  for (const kind of poi.oreKinds) {
+    if (poi.off.has(oreKey(kind))) continue;
+    g.beginPath();
+    let any = false;
+    const [ox, oy] = oreOffset(kind, lvl, zoom);
+    for (const c of oreCells(kind, lvl)) {
+      let [sx, sy] = toS(c.x + .5, c.y + .5), r = oreRadius(c, lvl, zoom);
+      sx += ox; sy += oy;
+      if (sx < -r || sy < -r || sx > W + r || sy > H + r) continue;
+      g.moveTo(sx + r, sy); g.arc(sx, sy, r, 0, Math.PI * 2); any = true;
+    }
+    if (!any) continue;
+    g.strokeStyle = "rgba(0,0,0,.6)"; g.lineWidth = 1.5; g.stroke();
+    g.globalAlpha = 0.92; g.fillStyle = oreInfo(kind)[1]; g.fill(); g.globalAlpha = 1;
+  }
+  // objects, batched per group; bosses last so they stay on top
+  const sc = iconScale(zoom), groups = new Map(), labels = [];
+  const wantLabels = zoom >= 4;
+  const seen = zoom < 2 ? new Set() : null;  // zoomed out: one icon per group per small screen cell
+  for (const o of poi.objects) {
+    if (poi.off.has(objKey(o.g.k)) || !poiPass(o)) continue;
+    const [sx, sy] = toS(o.x + .5, o.y + .5);
+    if (sx < -12 || sy < -12 || sx > W + 12 || sy > H + 12) continue;
+    if (seen && o.g.k !== "boss") {
+      // world-anchored cells, so the chosen icon doesn't change when the cached layer is re-rendered
+      const cw = o.g.size * sc * 2.2 / zoom, k = o.g.k + Math.floor(o.x / cw) + "," + Math.floor(o.y / cw);
+      if (seen.has(k)) continue;
+      seen.add(k);
+    }
+    let arr = groups.get(o.g); if (!arr) groups.set(o.g, arr = []);
+    arr.push([sx, sy]);
+    if ((wantLabels || o.g.k === "boss") && labels.length < 300) labels.push([o, sx, sy]);
+  }
+  for (const gr of [...POI_GROUPS, ...BOULDER_GROUPS].reverse()) if (groups.has(gr)) drawIconBatch(g, gr, groups.get(gr), sc);
+  // labels
+  g.font = "600 11px 'Segoe UI', 'Malgun Gothic', sans-serif";
+  g.textBaseline = "middle"; g.lineJoin = "round";
+  for (const [o, sx, sy] of labels) {
+    const t = prettyName(o.name), dx = o.g.size * sc + 4;
+    g.strokeStyle = "rgba(0,0,0,.85)"; g.lineWidth = 3; g.strokeText(t, sx + dx, sy);
+    g.fillStyle = o.g.k === "boss" ? "#ffd0d4" : "#e6e9ef"; g.fillText(t, sx + dx, sy);
+  }
+  g.restore();
+}
+function drawPoiHover(g, h) {
+  if (!h) return;
+  const toS = toScreen, zoom = cam.zoom, lvl = oreLevel(zoom), sc = iconScale(zoom);
+  {
+    let [sx, sy] = toS(h.obj ? h.x + .5 : h.ore.x + .5, h.obj ? h.y + .5 : h.ore.y + .5);
+    if (h.ore) { const [ox, oy] = oreOffset(h.ore.kind, lvl, zoom); sx += ox; sy += oy; }
+    const r = h.obj ? h.obj.g.size * sc + 5 : oreRadius(h.ore, lvl, zoom) + 4;
+    g.beginPath(); g.arc(sx, sy, r, 0, Math.PI * 2);
+    g.strokeStyle = "rgba(0,0,0,.7)"; g.lineWidth = 4; g.stroke();
+    g.strokeStyle = "#fff"; g.lineWidth = 1.8; g.stroke();
+  }
+}
+
+// Overlay cache: POIs are rendered once per zoom/settings into an offscreen canvas that covers the
+// viewport plus a margin; panning just blits it (re-rendered only when the view leaves the margin).
+const poiLayer = { cv: document.createElement("canvas"), key: null, tlx: 0, tly: 0, M: 320 };
+function drawPoiLayer(W, H) {
+  if (!poi.objects.length && !poi.ores.length) return;
+  refreshPoiFlags();
+  const L = poiLayer, M = L.M, z = cam.zoom;
+  const key = [z, poi.gen, poi.stateKey, W, H, dpr].join("|");
+  let [sx, sy] = toScreen(L.tlx, L.tly);
+  if (L.key !== key || sx > 0 || sy > 0 || sx + W + 2 * M < W || sy + H + 2 * M < H) {
+    L.tlx = cam.x - (W / 2 + M) / z; L.tly = cam.y + (H / 2 + M) / z;
+    const c = L.cv, g = c.getContext("2d");
+    c.width = Math.round((W + 2 * M) * dpr); c.height = Math.round((H + 2 * M) * dpr);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const tlx = L.tlx, tly = L.tly;
+    renderPois(g, { toS: (wx, wy) => [(wx - tlx) * z, (tly - wy) * z], zoom: z, W: W + 2 * M, H: H + 2 * M });
+    L.key = key;
+    [sx, sy] = toScreen(L.tlx, L.tly);
+  }
+  // snap to device pixels so the cached bitmap is copied, not resampled
+  ctx.drawImage(L.cv, Math.round(sx * dpr) / dpr, Math.round(sy * dpr) / dpr, W + 2 * M, H + 2 * M);
+}
+
+// hit testing: nearest object within its icon, else the ore dot under the cursor
+function hitPoi(sx, sy) {
+  const sc = iconScale(cam.zoom);
+  let best = null, bd = Infinity;
+  for (const o of poi.objects) {
+    if (poi.off.has(objKey(o.g.k)) || !poiPass(o)) continue;
+    const [x, y] = toScreen(o.x + .5, o.y + .5), d = Math.hypot(x - sx, y - sy);
+    if (d <= o.g.size * sc + 4 && d < bd) { bd = d; best = o; }
+  }
+  if (best) return { obj: best, x: best.x, y: best.y };
+  const lvl = oreLevel(cam.zoom);
+  let bestC = null; bd = Infinity;
+  for (const kind of poi.oreKinds) {
+    if (poi.off.has(oreKey(kind))) continue;
+    const [ox, oy] = oreOffset(kind, lvl, cam.zoom);
+    for (const c of oreCells(kind, lvl)) {
+      const [x, y] = toScreen(c.x + .5, c.y + .5), d = Math.hypot(x + ox - sx, y + oy - sy);
+      if (d <= oreRadius(c, lvl, cam.zoom) + 2 && d < bd) { bd = d; bestC = c; }
+    }
+  }
+  return bestC ? { ore: bestC, x: Math.round(bestC.x), y: Math.round(bestC.y) } : null;
+}
+let hoverPoi = null;
+function setHover(h, sx, sy) {
+  const same = h && hoverPoi && (h.obj ? h.obj === hoverPoi.obj : h.ore === hoverPoi.ore);
+  if (!same && (h || hoverPoi)) requestDraw();
+  hoverPoi = h;
+  const tip = $("tip");
+  if (!h) { tip.hidden = true; cv.style.cursor = ""; return; }
+  if (!same) {
+    tip.textContent = "";
+    const b = document.createElement("b"), raw = document.createElement("div"), co = document.createElement("div");
+    raw.className = "raw"; co.className = "raw";
+    if (h.obj) {
+      const o = h.obj, known = POI_GROUP_OF[o.cat];
+      b.textContent = POI_CAT_LABEL[o.cat] || (known || o.g.boulder ? o.g.label + (o.g.boulder ? t("boulderSuffix") : "") : t("otherCat", o.cat));
+      raw.textContent = o.name || t("noName");
+      co.textContent = `x ${o.x}, y ${o.y} · ${t("clickToGo")}`;
+    } else {
+      const c = h.ore;
+      b.textContent = t("oreVein", oreInfo(c.kind)[0]);
+      raw.textContent = c.kind + (c.n > 1 ? t("oreMerged", c.count, c.n) : t("oreTiles", c.count));
+      co.textContent = `x ${h.x}, y ${h.y}` + (c.n > 1 ? t("near") : "");
+    }
+    tip.append(b, raw, co);
+  }
+  tip.hidden = false;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.min(sx + 14, innerWidth - tw - 6) + "px";
+  tip.style.top = (sy + 16 + th > innerHeight ? sy - th - 10 : sy + 16) + "px";
+  cv.style.cursor = h.obj ? "pointer" : "";
+}
+const updateHover = (sx, sy) => setHover(hitPoi(sx, sy), sx, sy);
+
+// ---- panel ----
+function iconCanvas(draw) {
+  const c = document.createElement("canvas"), r = window.devicePixelRatio || 1;
+  c.className = "ic"; c.width = c.height = Math.round(14 * r);
+  const g = c.getContext("2d"); g.scale(r, r); draw(g); return c;
+}
+function poiRow(key, label, icon, title) {
+  const row = document.createElement("label"); row.className = "row"; row.dataset.key = key;
+  if (title) row.title = title;
+  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !poi.off.has(key);
+  cb.onchange = () => { cb.checked ? poi.off.delete(key) : poi.off.add(key); savePoiPrefs(); syncGroupBoxes(); requestDraw(); };
+  const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = label;
+  const ct = document.createElement("span"); ct.className = "ct";
+  row.append(cb, icon, nm, ct);
+  return row;
+}
+function buildPoiPanel() {
+  const ro = $("rowsObj"), rr = $("rowsOre"), rb = $("rowsBld");
+  ro.textContent = ""; rr.textContent = ""; rb.textContent = "";
+  for (const gr of BOULDER_GROUPS)
+    rb.append(poiRow(objKey(gr.k), oreInfo(gr.kind)[0], iconCanvas(g => drawIconBatch(g, gr, [[7, 7]], 5.2 / gr.size)), t("boulderTitle", gr.kind)));
+  for (const gr of POI_GROUPS) {
+    const cats = [...new Set(poi.objects.filter(o => o.g === gr).map(o => o.cat))];
+    ro.append(poiRow(objKey(gr.k), gr.label, iconCanvas(g => drawIconBatch(g, gr, [[7, 7]], Math.min(1, 5.2 / gr.size))),
+      cats.length ? t("rawCats") + cats.join(", ") : ""));
+  }
+  for (const kind of poi.oreKinds) {
+    const [ko, color] = oreInfo(kind);
+    rr.append(poiRow(oreKey(kind), ko, iconCanvas(g => {
+      g.beginPath(); g.arc(7, 7, 4.5, 0, Math.PI * 2);
+      g.strokeStyle = "rgba(0,0,0,.6)"; g.lineWidth = 1.5; g.stroke(); g.fillStyle = color; g.fill();
+    }), kind));
+  }
+  if (!poi.oreKinds.length) {
+    const m = document.createElement("div"); m.className = "muted"; m.textContent = t("noOre"); rr.append(m);
+  }
+  $("poiMeta").textContent = poi.missing ? t("poiMissing")
+    : poi.generatedAt ? t("poiGenerated", new Date(poi.generatedAt).toLocaleDateString()) : "";
+  $("poiMeta").title = poi.missing ? t("poiMissingTitle") : "";
+  syncGroupBoxes(); updatePoiCounts();
+}
+function syncGroupBoxes() {
+  for (const [boxId, rowsId] of [["gObj", "rowsObj"], ["gBld", "rowsBld"], ["gOre", "rowsOre"]]) {
+    const keys = [...$(rowsId).querySelectorAll(".row")].map(r => r.dataset.key);
+    const on = keys.filter(k => !poi.off.has(k)).length;
+    $(boxId).checked = keys.length > 0 && on === keys.length;
+    $(boxId).indeterminate = on > 0 && on < keys.length;
+    $(boxId).disabled = !keys.length;
+  }
+}
+for (const [boxId, rowsId] of [["gObj", "rowsObj"], ["gBld", "rowsBld"], ["gOre", "rowsOre"]]) {
+  $(boxId).onchange = () => {
+    const on = $(boxId).checked;
+    for (const row of $(rowsId).querySelectorAll(".row")) {
+      on ? poi.off.delete(row.dataset.key) : poi.off.add(row.dataset.key);
+      row.querySelector("input").checked = on;
+    }
+    savePoiPrefs(); syncGroupBoxes(); requestDraw();
+  };
+}
+function updatePoiCounts() {
+  const counts = poi.counts || new Map();
+  for (const [rowsId, sumId] of [["rowsObj", "gObjC"], ["rowsBld", "gBldC"], ["rowsOre", "gOreC"]]) {
+    let sum = 0;
+    for (const row of $(rowsId).querySelectorAll(".row")) {
+      const n = counts.get(row.dataset.key) || 0; sum += n;
+      row.querySelector(".ct").textContent = n.toLocaleString();
+      row.classList.toggle("zero", !n);
+    }
+    $(sumId).textContent = sum ? sum.toLocaleString() + (rowsId === "rowsOre" ? t("sumAreas") : t("sumCount")) : "";
+  }
+}
+function setPoiFilter(f) {
+  poi.filter = f; poi.stateKey = null;
+  for (const b of $("poiFilter").querySelectorAll("button")) b.classList.toggle("on", b.dataset.f === f);
+  savePoiPrefs(); requestDraw();
+}
+for (const b of $("poiFilter").querySelectorAll("button")) b.onclick = () => setPoiFilter(b.dataset.f);
+setPoiFilter(poi.filter);
+buildPoiPanel();
+
+// ---- settings / setup (admin actions work only on the PC running the viewer) ----
+let appStatus = null, setupAutoOpened = false;
+async function api(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-CKMV": "1" },
+                                body: JSON.stringify(body || {}) });
+  let j = {}; try { j = await r.json(); } catch (_) {}
+  return j;
+}
+function badge(el, ok, text) { el.className = "badge " + (ok ? "ok" : "bad"); el.textContent = text; }
+function msg(el, text, cls) { el.textContent = text || ""; el.className = "hint" + (cls ? " " + cls : ""); }
+function openSetup(open = true) {
+  $("setup").hidden = !open;
+  if (open) { loadStatus(); if (!$("sNotLocal").hidden) return; }
+}
+async function loadStatus() {
+  try { appStatus = await (await fetch("/api/status")).json(); } catch (_) { return; }
+  isAdmin = !!appStatus.admin;
+  $("bSetup").hidden = !isAdmin;
+  $("sNotLocal").hidden = isAdmin; $("sBody").hidden = !isAdmin;
+  $("setupCta").hidden = !(isAdmin && appStatus.needsSetup);
+  if (!isAdmin) return;
+  if (appStatus.needsSetup && !setupAutoOpened && !new URLSearchParams(location.search).has("nolive")) {
+    setupAutoOpened = true; $("setup").hidden = false;
+  }
+  if (location.pathname === "/setup" && !setupAutoOpened) { setupAutoOpened = true; $("setup").hidden = false; }
+  renderSetup();
+}
+function renderSetup() {
+  const s = appStatus; if (!s || !s.admin) return;
+  const ins = s.install, dat = s.data, active = document.activeElement;
+  // paths: show the effective path; the source tells whether it was auto-detected
+  if (active !== $("sInstall")) $("sInstall").value = ins.path || "";
+  $("sInstall").placeholder = t("r_not_found");
+  badge($("sInstallSt"), ins.ok, (ins.ok ? t("found") : t("missing")) + " · " + t("src_" + ins.source));
+  msg($("sInstallMsg"), ins.ok ? "" : t("r_" + (ins.reason || "not_found")), ins.ok ? "" : "bad");
+  if (active !== $("sData")) $("sData").value = dat.path || "";
+  badge($("sDataSt"), dat.ok, (dat.ok ? t("found") : t("missing")) + " · " + t("src_" + dat.source));
+  msg($("sDataMsg"), dat.ok ? "" : t("r_" + (dat.reason || "not_found")), dat.ok ? "" : "bad");
+  const sel = $("sWorld"), cur = s.config.world;
+  if (active !== sel) {
+    sel.textContent = "";
+    const auto = document.createElement("option"); auto.value = "";
+    auto.textContent = t("sWorldAuto", s.worldSource === "serverconfig" ? s.world : "?"); sel.append(auto);
+    const ids = new Set([...(dat.worlds || []), s.world, ...(cur != null ? [cur] : [])]);
+    for (const w of [...ids].sort((a, b) => a - b)) {
+      const o = document.createElement("option"); o.value = String(w); o.textContent = `${t("sWorld")} ${w}`; sel.append(o);
+    }
+    sel.value = cur == null ? "" : String(cur);
+  }
+  if (active !== $("sPort")) $("sPort").value = s.listen.port;
+  $("sLan").checked = !!s.config.lan;
+  $("sLanUrls").textContent = s.listen.lan && s.listen.lanUrls.length ? t("lanUrls") + " " + s.listen.lanUrls.join("  ") : "";
+  if (s.listen.bindError) msg($("sMsg"), t("bindError") + s.listen.bindError, "bad");
+  // full map
+  const fm = s.fullMap;
+  $("gHave").textContent = fm.exists && fm.updatedAt ? t("gHave", fm.parts, new Date(fm.updatedAt * 1000).toLocaleString()) : t("gNever");
+  if (s.job) renderJob(s.job);
+  $("gStart").disabled = !ins.ok || !(dat.saveFile) || (s.job && s.job.state === "running");
+  // mod
+  const m = s.mod, srv = m.server || {};
+  $("mState").textContent = m.error === "no_install" ? t("mNoInstall")
+    : !m.installed ? t("mNot") : m.upToDate ? t("mIs", m.installedVersion || "?") : t("mOld", m.installedVersion || "?", m.bundledVersion);
+  const busy = srv.running || (srv.unknown && srv.unknown.length) || srv.running == null;
+  $("mServer").textContent = m.error === "no_install" ? "" : srv.running ? t("mRunning", srv.pids.join(", "))
+    : srv.unknown && srv.unknown.length ? t("mMaybe") : srv.running == null ? t("me_check_failed") : t("mStopped");
+  $("mServer").className = "kv " + (m.error === "no_install" ? "" : busy ? "bad" : "ok");
+  $("mFeed").textContent = t("pl_" + (s.players.status || "none"), (s.players.players || []).length);
+  $("mInstall").disabled = !!m.error || busy;
+  $("mRemove").disabled = !!m.error || busy || !m.installed;
+  $("sAppData").textContent = s.outDir;
+  $("sVer").textContent = `v${s.version}`;
+}
+function renderJob(st) {
+  if (!st || !isAdmin) return;
+  $("gJob").hidden = false;
+  const running = st.state === "running";
+  $("gCancel").hidden = !running;
+  $("gStart").disabled = running || !(appStatus && appStatus.install.ok && appStatus.data.saveFile);
+  const pct = Math.round((st.fraction || 0) * 100);
+  const phase = t("ph_" + st.phase) !== "ph_" + st.phase ? t("ph_" + st.phase) : (st.phase || "");
+  let line = `${t("job_" + st.state)} · ${phase}` + (running && ["generate", "render"].includes(st.phase) ? ` ${pct}%` : "");
+  if (st.error) line += " · " + (t("e_" + st.error) !== "e_" + st.error ? t("e_" + st.error) : st.error);
+  $("gState").textContent = line;
+  $("gState").className = "kv " + (st.state === "failed" ? "bad" : st.state === "done" ? "ok" : "");
+  // overall bar: copy/prepare/start ~10%, generate 10-75%, render 75-98%
+  const f = st.fraction || 0, w = st.state === "done" ? 100 : { check: 1, copy: 4, prepare: 8, start: 10,
+    generate: 10 + 65 * f, render: 75 + 23 * f, stop: 99 }[st.phase] ?? 0;
+  $("gBar").style.width = `${w}%`;
+  const log = (st.log || []).join("\n") + (running && st.message && !["copy_server", "copy_world", "start_server", "stop_server"].includes(st.message) ? "\n" + st.message : "");
+  const el = $("gLog"), atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+  el.textContent = log; if (atEnd) el.scrollTop = el.scrollHeight;
+  if (!running && appStatus && appStatus.job && appStatus.job.state === "running") loadStatus();
+  if (appStatus) appStatus.job = st;
+}
+$("bSetup").onclick = () => openSetup(true);
+$("bSetup2").onclick = () => openSetup(true);
+$("sClose").onclick = () => openSetup(false);
+$("setup").addEventListener("click", (e) => { if (e.target === $("setup")) openSetup(false); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("setup").hidden) openSetup(false); });
+function pathValue(input, info) {  // unchanged auto-detected value -> null (keep auto-detect)
+  const v = input.value.trim();
+  if (!v || (info.source === "auto" && v === (info.path || ""))) return null;
+  return v;
+}
+$("sSave").onclick = async () => {
+  const s = appStatus; if (!s) return;
+  const body = { serverInstall: pathValue($("sInstall"), s.install), dataDir: pathValue($("sData"), s.data),
+                 world: $("sWorld").value === "" ? null : +$("sWorld").value,
+                 lan: $("sLan").checked, port: +$("sPort").value || s.listen.port };
+  const r = await api("/api/config", body);
+  if (!r.ok) { msg($("sMsg"), r.message || r.error || "error", "bad"); return; }
+  msg($("sMsg"), r.restart ? t("sRestarting") : t("sSaved"), "ok");
+  if (r.restart && r.port !== s.listen.port) {
+    setTimeout(() => { location.href = `${location.protocol}//127.0.0.1:${r.port}/?setup`; }, 1500);
+  } else {
+    setTimeout(() => { loadStatus(); sync(); }, r.restart ? 1500 : 200);
+  }
+};
+$("sAuto").onclick = async () => {
+  const r = await api("/api/config", { serverInstall: null, dataDir: null, world: null });
+  msg($("sMsg"), r.ok ? t("sSaved") : (r.message || r.error), r.ok ? "ok" : "bad");
+  loadStatus(); sync();
+};
+$("sRedetect").onclick = async () => { await api("/api/detect"); loadStatus(); sync(); };
+$("sOpen").onclick = () => api("/api/open-folder", { which: "world" });
+$("gStart").onclick = async () => {
+  const r = await api("/api/generate", { radius: +$("gRadius").value || 0 });
+  if (!r.ok) { $("gJob").hidden = false; $("gState").textContent = t("e_" + r.error) !== "e_" + r.error ? t("e_" + r.error) : r.error; $("gState").className = "kv bad"; }
+  loadStatus();
+};
+$("gCancel").onclick = () => api("/api/generate/cancel");
+async function modAction(action) {
+  $("mInstall").disabled = $("mRemove").disabled = true;
+  const r = await api("/api/mod", { action });
+  if (r.ok) msg($("mMsg"), t("mDone_" + r.action), "ok");
+  else msg($("mMsg"), t("me_" + r.error) !== "me_" + r.error ? t("me_" + r.error) + (r.pids && r.pids.length ? ` (PID ${r.pids.join(", ")})` : "") : (r.message || r.error), "bad");
+  loadStatus();
+}
+$("mInstall").onclick = () => modAction("install");
+$("mRemove").onclick = () => modAction("uninstall");
+setInterval(() => { if (!$("setup").hidden) loadStatus(); }, 5000);   // server start/stop, mod feed
+$("bLang").textContent = LANG === "ko" ? "EN" : "한";
+$("bLang").onclick = () => {
+  try { localStorage.setItem("ckmap.lang", LANG === "ko" ? "en" : "ko"); } catch (_) {}
+  const u = new URL(location.href); u.searchParams.delete("lang"); location.href = u.toString();
+};
+if (new URLSearchParams(location.search).has("setup")) { setupAutoOpened = true; $("setup").hidden = false; }
+loadStatus();
+
+window.addEventListener("resize", resize);
+resize();
+loadMarkers();
+loadPlayers();   // SSE pushes updates; this also covers ?nolive one-shot renders
+// ?nolive = one-shot render without the live event stream (screenshots, printing)
+sync().then(() => { if (!new URLSearchParams(location.search).has("nolive")) connect(); });
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

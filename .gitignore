@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+
+# Local/generated data (the app stores its data under %APPDATA%\CoreKeeperMapViewer)
+*.mapparts.gzip
+*.world.gzip
+pois.json
+markers*.json
+players.json
+*.tmp
+*.log

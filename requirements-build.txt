@@ -1,0 +1,2 @@
+# The app itself uses only the Python standard library. This is for building the .exe.
+pyinstaller>=6.10,<7
