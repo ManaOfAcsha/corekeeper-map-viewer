@@ -1,9 +1,9 @@
 # Core Keeper 맵 뷰어
 
+[English](README.md) | **한국어**
+
 **Core Keeper 전용 서버(Dedicated Server)** 의 탐험 지도를 브라우저에서 실시간으로 보는 로컬 웹 지도입니다.
 원하면 **월드 전체를 미리 생성한 지도**(보스·상자·상인·광석 위치 포함)와 **플레이어 실시간 위치**도 함께 볼 수 있습니다.
-
-[English README](README.md)
 
 ![맵 뷰어](docs/screenshot-map.png)
 

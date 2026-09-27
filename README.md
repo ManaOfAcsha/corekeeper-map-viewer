@@ -1,10 +1,10 @@
 # Core Keeper Map Viewer
 
+**English** | [한국어](README.ko.md)
+
 A local web map for **Core Keeper dedicated servers** — see the explored map update live in your
 browser, optionally with the **whole world pre-generated** (bosses, chests, merchants, ores …) and
 **live player positions**.
-
-[한국어 README](README.ko.md)
 
 ![Map viewer](docs/screenshot-map.png)
 
