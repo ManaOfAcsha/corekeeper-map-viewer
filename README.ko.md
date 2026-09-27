@@ -136,7 +136,7 @@
 
 명령줄(소스 실행도 동일): `CoreKeeperMapViewer.exe [--port N] [--lan] [--data-dir 경로]
 [--server-install 경로] [--world N] [--no-browser]`, 그리고 `detect`, `generate [--radius N]`,
-`mod install|uninstall|status`.
+`mod install|uninstall|status`. 종료 코드: 0 = 성공, 1 = 실패("이미 다른 생성이 실행 중" 포함), 2 = 모드 변경 거부.
 
 ## 소스로 실행
 

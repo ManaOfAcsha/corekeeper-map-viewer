@@ -40,6 +40,8 @@ if IS_WIN:
     _k32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
                                                 ctypes.POINTER(wintypes.DWORD)]
     _k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    _k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
 
 
 def _image_path(pid: int):
@@ -52,6 +54,44 @@ def _image_path(pid: int):
         if _k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
             return buf.value
         return None
+    finally:
+        _k32.CloseHandle(h)
+
+
+def process_info(pid: int):
+    """None if no such process is running; else {"exe": path or None, "created": epoch or None}.
+    exe/created are None when the process exists but cannot be inspected (access denied):
+    callers must then treat it as alive and unknown."""
+    pid = int(pid)
+    if pid <= 0:
+        return None
+    if not IS_WIN:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return None
+        except PermissionError:
+            return {"exe": None, "created": None}
+        return {"exe": None, "created": None}
+    h = _k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        err = ctypes.get_last_error()
+        if err == 87:          # ERROR_INVALID_PARAMETER: no such process
+            return None
+        return {"exe": None, "created": None}   # e.g. access denied: exists, unknown
+    try:
+        code = wintypes.DWORD()
+        if _k32.GetExitCodeProcess(h, ctypes.byref(code)) and code.value != 259:   # STILL_ACTIVE
+            return None
+        buf = ctypes.create_unicode_buffer(32768)
+        n = wintypes.DWORD(len(buf))
+        exe = buf.value if _k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)) else None
+        created = None
+        c, e, k, u = (wintypes.FILETIME() for _ in range(4))
+        if _k32.GetProcessTimes(h, ctypes.byref(c), ctypes.byref(e), ctypes.byref(k), ctypes.byref(u)):
+            ft = (c.dwHighDateTime << 32) | c.dwLowDateTime
+            created = ft / 1e7 - 11644473600.0
+        return {"exe": exe, "created": created}
     finally:
         _k32.CloseHandle(h)
 

@@ -298,7 +298,7 @@ const I18N = {
     job_running: "진행 중", job_done: "완료", job_failed: "실패", job_cancelled: "취소됨",
     ph_check: "확인", ph_copy: "서버 복사 중", ph_prepare: "월드 복사 중", ph_start: "일회용 서버 시작 중",
     ph_generate: "지형 생성 중", ph_render: "지도 그리는 중", ph_stop: "일회용 서버 종료 중", ph_done: "완료",
-    e_already_running: "이미 생성 중입니다", e_server_install_missing: "전용 서버 설치 폴더를 찾지 못했습니다",
+    e_already_running: "이미 생성 중입니다", e_already_running_elsewhere: "다른 프로그램(다른 뷰어 창 또는 generate 명령)이 이미 생성 중입니다", e_server_install_missing: "전용 서버 설치 폴더를 찾지 못했습니다",
     e_world_save_missing: "월드 세이브(worlds/<월드>.world.gzip)가 없습니다",
     e_work_dir_overlaps_real_server: "작업 폴더가 실제 서버 폴더와 겹칩니다 — 거부",
     mTitle: "플레이어 위치 모드 (LivePlayers)",
@@ -374,7 +374,7 @@ const I18N = {
     job_running: "running", job_done: "done", job_failed: "failed", job_cancelled: "cancelled",
     ph_check: "checking", ph_copy: "copying server", ph_prepare: "copying world", ph_start: "starting disposable server",
     ph_generate: "generating terrain", ph_render: "drawing map", ph_stop: "stopping disposable server", ph_done: "done",
-    e_already_running: "Already generating", e_server_install_missing: "Dedicated server install folder not found",
+    e_already_running: "Already generating", e_already_running_elsewhere: "Another instance (second viewer or the generate command) is already generating", e_server_install_missing: "Dedicated server install folder not found",
     e_world_save_missing: "World save (worlds/<world>.world.gzip) not found",
     e_work_dir_overlaps_real_server: "Scratch folder overlaps the real server folder — refused",
     mTitle: "Player position mod (LivePlayers)",
@@ -1451,7 +1451,7 @@ $("sRedetect").onclick = async () => { await api("/api/detect"); loadStatus(); s
 $("sOpen").onclick = () => api("/api/open-folder", { which: "world" });
 $("gStart").onclick = async () => {
   const r = await api("/api/generate", { radius: +$("gRadius").value || 0 });
-  if (!r.ok) { $("gJob").hidden = false; $("gState").textContent = t("e_" + r.error) !== "e_" + r.error ? t("e_" + r.error) : r.error; $("gState").className = "kv bad"; }
+  if (!r.ok) { $("gJob").hidden = false; $("gState").textContent = (t("e_" + r.error) !== "e_" + r.error ? t("e_" + r.error) : (r.message || r.error)) + (r.pid ? ` (PID ${r.pid})` : ""); $("gState").className = "kv bad"; }
   loadStatus();
 };
 $("gCancel").onclick = () => api("/api/generate/cancel");

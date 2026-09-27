@@ -11,6 +11,11 @@
      generates terrain area by area, draws it into the server map and writes a DONE marker.
   5. Stop only the process we started, copy the map + POIs into the per-world app-data folder,
      where the viewer picks them up as the background layer.
+
+The scratch folder is shared by every process of this app (viewer, second viewer, `generate`
+command), so a run holds fullmap-work/.lock (see worklock.py) from before its first filesystem
+change until it has cleaned up. While the disposable server runs, the job fails (instead of
+waiting forever) if the mod's progress file stops changing or its marker folder disappears.
 """
 import gzip
 import json
@@ -24,6 +29,7 @@ import uuid
 from pathlib import Path
 
 from . import detect, paths, procs
+from .worklock import LockBusy, WorkLock
 
 MOD_DIR = Path("mods") / "FullMapGen"   # relative to the datapath (the mod's ConfigFilesystem)
 ARM_TOKEN = "DISPOSABLE-COPY-OK"
@@ -35,6 +41,13 @@ class GenError(Exception):
 
 class Cancelled(Exception):
     pass
+
+
+class Busy(GenError):
+    """Another process holds the scratch-folder lock."""
+    def __init__(self, holder: dict):
+        self.holder = holder or {}
+        super().__init__(f"another generation is already running (pid {self.holder.get('pid', '?')})")
 
 
 def _free_udp_port():
@@ -53,16 +66,18 @@ class Generator:
     """One generation run. Thread-safe state snapshot via .state(); cancel via .cancel()."""
 
     def __init__(self, install: Path, data_dir: Path, world: int, out_dir: Path, radius: int = 0,
-                 timeout_min: int = 120, on_change=None, keep=False):
+                 timeout_min: int = 120, on_change=None, keep=False, stall_min: float = 10):
         self.install = Path(install) if install else None
         self.data_dir = Path(data_dir)
         self.world = int(world)
         self.out_dir = Path(out_dir)
         self.radius = int(radius or 0)
         self.timeout_min = timeout_min
+        self.stall_min = stall_min
         self.keep = keep
         self.on_change = on_change or (lambda st: None)
         self.work = paths.work_dir()
+        self.worklock = WorkLock(self.work)
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._proc = None
@@ -113,6 +128,13 @@ class Generator:
         for real in (self.install, self.data_dir):
             if paths.is_inside(self.work, real) or paths.is_inside(real, self.work):
                 raise GenError("work_dir_overlaps_real_server")
+
+    def acquire_lock(self):
+        """Take the cross-process scratch-folder lock; raises Busy. Safe to call twice."""
+        try:
+            self.worklock.acquire()
+        except LockBusy as e:
+            raise Busy(e.holder) from None
 
     # ---- steps ------------------------------------------------------------------------------
     def _mirror_install(self, dst: Path):
@@ -181,11 +203,15 @@ class Generator:
         if not procs.job().assign(proc):
             self._update(log="note: could not attach the disposable server to the app's job object")
         t0, last = time.time(), None
+        stamp, stamp_at = None, t0     # last seen PROGRESS.json (mtime, size) and when it changed
         try:
             while True:
                 self._check_cancel()
                 if proc.poll() is not None:
                     raise GenError(f"server_exited (rc={proc.returncode})")
+                if not (data / MOD_DIR / "ARMED").is_file() and not (data / MOD_DIR / "DONE.json").exists():
+                    raise GenError("work_dir_tampered (the mod's marker folder disappeared - another "
+                                   "process changed the scratch folder)")
                 done = data / MOD_DIR / "DONE.json"
                 if done.exists():
                     self._update(fraction=1.0, log="done marker: " + done.read_text(encoding="utf-8").strip())
@@ -194,7 +220,17 @@ class Generator:
                 if aborted.exists():
                     raise GenError("mod_aborted: " + aborted.read_text(encoding="utf-8").strip())
                 prog = data / MOD_DIR / "PROGRESS.json"
-                if prog.exists():
+                try:
+                    st = prog.stat()
+                    cur = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    cur = None
+                if cur is not None and cur != stamp:
+                    stamp, stamp_at = cur, time.time()
+                elif time.time() - stamp_at > self.stall_min * 60:
+                    raise GenError(f"stalled (no progress from the mod for {self.stall_min:g} min "
+                                   "while the disposable server is still running)")
+                if cur is not None:
                     try:
                         p = json.loads(prog.read_text(encoding="utf-8"))
                         key = (p.get("phase"), round(float(p.get("fraction", 0)), 3))
@@ -242,7 +278,7 @@ class Generator:
         data = self.work / "data"
         try:
             self._preflight()
-            self.work.mkdir(parents=True, exist_ok=True)
+            self.acquire_lock()   # before ANY change in the shared scratch folder
             install = self.work / "server"
             self._mirror_install(install)
             self._check_cancel()
@@ -258,6 +294,16 @@ class Generator:
         except Exception as e:   # unexpected: report, never crash the viewer
             self._update(state="failed", error=repr(e), finishedAt=time.time(), log="failed: " + repr(e))
         finally:
+            if self.worklock.held:
+                try:
+                    self._cleanup(data)
+                finally:
+                    self.worklock.release()
+        return self.state()
+
+    def _cleanup(self, data: Path):
+        """Only while holding the lock: the scratch folder may belong to another run otherwise."""
+        try:
             log = data / "server.log"
             if self._st["state"] != "done" and log.is_file():
                 try:   # keep the disposable server's log for troubleshooting
@@ -266,6 +312,6 @@ class Generator:
                     self._update(log="server log kept: fullmap-last-server.log (app data folder)")
                 except OSError:
                     pass
+        finally:
             if not self.keep:
                 shutil.rmtree(data, ignore_errors=True)
-        return self.state()

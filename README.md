@@ -153,7 +153,8 @@ the data folder you selected.
 
 Command line (also works from source): `CoreKeeperMapViewer.exe [--port N] [--lan] [--data-dir PATH]
 [--server-install PATH] [--world N] [--no-browser]`, plus `detect`, `generate [--radius N]`,
-`mod install|uninstall|status`.
+`mod install|uninstall|status`. Exit code: 0 = ok, 1 = failed (incl. "another generation is already
+running"), 2 = mod change refused.
 
 ## Run from source
 

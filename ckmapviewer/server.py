@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import APP_NAME, __version__, config, detect, modinstall, paths, procs
-from .generator import Generator
+from .generator import Busy, Generator
 
 POLL_SEC = 2.0
 PLAYER_POLL_SEC = 0.5
@@ -409,10 +409,18 @@ class Viewer:
                           on_change=lambda st: self.hub.push("job", json.dumps(st).encode("utf-8")))
             try:
                 g._preflight()
+                g.acquire_lock()   # cross-process: another viewer / the `generate` command
+            except Busy as e:
+                return {"ok": False, "error": "already_running_elsewhere", "message": str(e),
+                        "pid": e.holder.get("pid")}
             except Exception as e:
                 return {"ok": False, "error": str(e)}
             self.gen = g
-            threading.Thread(target=g.run, daemon=True, name="fullmap").start()
+            try:
+                threading.Thread(target=g.run, daemon=True, name="fullmap").start()
+            except Exception:
+                g.worklock.release()
+                raise
         return {"ok": True}
 
     def cancel_generate(self) -> dict:
